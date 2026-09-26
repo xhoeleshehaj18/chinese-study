@@ -245,14 +245,52 @@ details.unit-list summary { padding: 6px 0; cursor: pointer; }
 .compare .changes, .compare .muted { margin-top: 4px; }
 .link-btn { display: block; margin: 16px auto 0; background: none; border: 0; padding: 8px; text-decoration: underline; cursor: pointer; font: inherit; text-align: center; }
 
-/* Update available bar */
+/* Update pill: slides down from the top */
 .update-bar {
-  position: fixed; top: 0; left: 0; right: 0; z-index: 20;
-  display: flex; align-items: center; gap: 8px;
-  padding: calc(8px + env(safe-area-inset-top)) 12px 8px 16px;
-  background: var(--warn-bg); border-bottom: 1px solid var(--line);
+  position: fixed; z-index: 20; left: 50%; top: calc(env(safe-area-inset-top) + 8px);
+  transform: translate(-50%, calc(-100% - 12px - env(safe-area-inset-top))); opacity: 0; pointer-events: none;
+  transition: transform 0.4s cubic-bezier(0.2, 0.9, 0.3, 1.15), opacity 0.25s;
+  display: flex; align-items: center; gap: 10px;
+  width: max-content; max-width: calc(100% - 24px); min-height: 44px;
+  padding: 6px 8px 6px 12px; overflow: hidden;
+  background: var(--card); color: var(--ink); border: 1px solid var(--line); border-radius: 999px;
+  box-shadow: 0 6px 24px rgb(0 0 0 / 0.18);
   font-size: 0.9rem; font-weight: 600;
 }
+.update-bar.show { transform: translate(-50%, 0); opacity: 1; pointer-events: auto; }
+.update-bar:not([data-state=available]):not([data-state=failed]) { padding-right: 16px; }
+.update-bar .ub-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
 .update-bar .btn { flex: none; }
+.update-bar .icon-btn { font-size: 1rem; padding: 6px 8px; }
+.update-bar .ub-go, .update-bar .ub-close { display: none; }
+.update-bar:is([data-state=available], [data-state=failed]) :is(.ub-go, .ub-close) { display: inline-flex; }
+.ub-icon {
+  flex: none; width: 22px; height: 22px; border-radius: 50%;
+  display: grid; place-items: center; font-size: 0.8rem; line-height: 1; color: #fff;
+}
+.update-bar[data-state=checking] .ub-icon { border: 2.5px solid var(--line); border-top-color: var(--accent); animation: ub-spin 0.8s linear infinite; }
+.update-bar:is([data-state=current], [data-state=restarting]) .ub-icon { background: var(--good); animation: ub-pop 0.45s cubic-bezier(0.2, 0.9, 0.3, 1.4); }
+.update-bar:is([data-state=current], [data-state=restarting]) .ub-icon::before { content: '✓'; font-weight: 800; }
+.update-bar[data-state=offline] .ub-icon { background: var(--muted); }
+.update-bar[data-state=offline] .ub-icon::before { content: '⌁'; font-size: 1rem; }
+.update-bar[data-state=available] .ub-icon { font-size: 1.1rem; animation: ub-wiggle 2.4s ease-in-out infinite; }
+.update-bar[data-state=available] .ub-icon::before { content: '✨'; }
+.update-bar[data-state=downloading] .ub-icon { background: var(--accent); overflow: hidden; }
+.update-bar[data-state=downloading] .ub-icon::before { content: '↓'; font-weight: 800; animation: ub-drop 0.9s ease-in infinite; }
+.update-bar[data-state=failed] .ub-icon { background: var(--accent); }
+.update-bar[data-state=failed] .ub-icon::before { content: '!'; font-weight: 800; }
+.ub-progress { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; display: none; }
+.update-bar:is([data-state=downloading], [data-state=restarting]) .ub-progress { display: block; }
+.ub-progress i { display: block; height: 100%; width: 0; background: var(--accent); transition: width 0.25s ease-out; }
+.update-bar[data-state=restarting] .ub-progress i { background: var(--good); }
+@keyframes ub-spin { to { transform: rotate(360deg); } }
+@keyframes ub-pop { 0% { transform: scale(0); } 100% { transform: scale(1); } }
+@keyframes ub-wiggle { 0%, 70%, 100% { transform: rotate(0) scale(1); } 80% { transform: rotate(-14deg) scale(1.15); } 90% { transform: rotate(12deg) scale(1.15); } }
+@keyframes ub-drop { 0% { transform: translateY(-120%); } 50%, 70% { transform: translateY(0); } 100% { transform: translateY(120%); } }
+@media (prefers-reduced-motion: reduce) {
+  .update-bar, .update-bar * { transition-duration: 0.01ms !important; }
+  .update-bar:not([data-state=checking]) .ub-icon, .update-bar .ub-icon::before { animation: none !important; }
+}
+#view { transition: padding-top 0.3s; }
 body.has-update #view { padding-top: calc(max(16px, env(safe-area-inset-top)) + 56px); }
 .row.left { justify-content: flex-start; margin: 8px 0 0; }

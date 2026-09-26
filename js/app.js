@@ -15,7 +15,7 @@ import {
 import { classifyTone } from './tone-grade.js';
 import { colorPinyin, syllables } from './pinyin.js';
 import { drawCompare, toneChanges } from './pitch-view.js';
-import { update, startUpdateChecks, checkForUpdate, forceUpdate } from './update.js';
+import { update, startUpdateChecks, checkForUpdate, downloadUpdate } from './update.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const view = $('#view');
@@ -1115,31 +1115,87 @@ function updateText() {
   }[update.status];
 }
 
-async function runForceUpdate() {
-  document.querySelectorAll('.force-update').forEach(b => { b.disabled = true; b.textContent = 'Updating…'; });
-  if (!(await forceUpdate())) {
-    alert('Couldn\'t download the update. Check your connection and try again.');
-    document.querySelectorAll('.force-update').forEach(b => { b.disabled = false; b.textContent = b.dataset.label || 'Force update'; });
-  }
-}
-
-// A bar at the top when a new version is out. Dismissing it hides it until the next time the app is opened.
-const updateBar = h(`<div class="update-bar hidden" role="status">
-    <span class="grow">✨ A new version is available.</span>
-    <button class="btn small force-update" data-label="Update">Update</button>
-    <button class="icon-btn dismiss" aria-label="Not now">✕</button>
+// A pill that slides down from the top: "Checking for updates…" → "Up to date" (then slides away),
+// or "A new version is available" with Update, which shows the download and restarts the app.
+const updateBar = h(`<div class="update-bar" role="status" aria-live="polite">
+    <span class="ub-icon" aria-hidden="true"></span>
+    <span class="ub-text"></span>
+    <button class="btn small ub-go force-update">Update</button>
+    <button class="icon-btn ub-close" aria-label="Not now">✕</button>
+    <span class="ub-progress"><i></i></span>
   </div>`);
 document.body.prepend(updateBar);
-$('.force-update', updateBar).onclick = runForceUpdate;
+const STICKY = ['available', 'downloading', 'restarting', 'failed']; // these push the page down instead of covering it
+const MIN_CHECKING = 700; // a check often takes 100 ms; keep the spinner up long enough to read
+let barTimer = null;
+let checkingSince = 0;
+let updating = false;
 let updateDismissed = false;
-$('.dismiss', updateBar).onclick = () => { updateDismissed = true; showUpdate(); };
+let justUpdated = false;
+try { justUpdated = !!sessionStorage.getItem('justUpdated'); sessionStorage.removeItem('justUpdated'); } catch {}
+
+function setBar(state, text, { hideAfter = 0 } = {}) {
+  clearTimeout(barTimer);
+  updateBar.dataset.state = state;
+  $('.ub-text', updateBar).textContent = text;
+  $('.ub-go', updateBar).textContent = state === 'failed' ? 'Retry' : 'Update';
+  updateBar.classList.add('show');
+  document.body.classList.toggle('has-update', STICKY.includes(state));
+  if (hideAfter) barTimer = setTimeout(hideBar, hideAfter);
+}
+
+function hideBar() {
+  clearTimeout(barTimer);
+  updateBar.classList.remove('show');
+  document.body.classList.remove('has-update');
+}
+
+$('.ub-go', updateBar).onclick = runForceUpdate;
+$('.ub-close', updateBar).onclick = () => { if (updateBar.dataset.state === 'available') updateDismissed = true; hideBar(); };
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') updateDismissed = false; });
 
 function showUpdate() {
-  const show = update.status === 'available' && !updateDismissed;
-  updateBar.classList.toggle('hidden', !show);
-  document.body.classList.toggle('has-update', show);
   document.querySelectorAll('.update-status').forEach(e => { e.textContent = updateText(); });
+  if (updating) return;
+  const status = update.status;
+  const offering = updateBar.classList.contains('show') && updateBar.dataset.state === 'available';
+  if (status === 'checking') {
+    if (!offering) { checkingSince = Date.now(); setBar('checking', 'Checking for updates…'); }
+    return;
+  }
+  const result = () => {
+    if (status === 'current') {
+      setBar('current', justUpdated ? 'Updated to the latest version' : 'Up to date', { hideAfter: 1600 });
+      justUpdated = false;
+    } else if (status === 'offline') setBar('offline', 'Offline · using the saved version', { hideAfter: 2200 });
+    else if (updateDismissed) hideBar();
+    else setBar('available', 'New version available');
+  };
+  clearTimeout(barTimer);
+  barTimer = setTimeout(result, Math.max(0, checkingSince + MIN_CHECKING - Date.now()));
+}
+
+async function runForceUpdate() {
+  if (updating) return;
+  updating = true;
+  document.querySelectorAll('.force-update').forEach(b => { b.disabled = true; });
+  const fill = $('.ub-progress i', updateBar);
+  const started = Date.now();
+  const ok = await downloadUpdate((done, total) => {
+    setBar('downloading', `Downloading update… ${done}/${total}`);
+    fill.style.width = `${(100 * done) / total}%`;
+  });
+  await new Promise(r => setTimeout(r, Math.max(0, started + 900 - Date.now()))); // let the bar fill visibly
+  if (ok) {
+    setBar('restarting', 'Update ready · restarting…');
+    try { sessionStorage.setItem('justUpdated', '1'); } catch {}
+    setTimeout(() => location.reload(), 900);
+  } else {
+    updating = false;
+    document.querySelectorAll('.force-update').forEach(b => { b.disabled = false; });
+    fill.style.width = '0';
+    setBar('failed', 'Update failed · offline?');
+  }
 }
 
 // ---------------------------------------------------------------- boot

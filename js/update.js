@@ -83,12 +83,15 @@ export async function startUpdateChecks(onChange) {
 }
 
 // Re-downloads every file past the browser's HTTP cache (which also refreshes the service
-// worker's offline copy), then reloads. Nothing is thrown away until the new copies arrived,
-// so pressing it offline can't break the app.
-export async function forceUpdate() {
-  const ok = await Promise.all(FILES.map(f => fetch(f, { cache: 'reload' }).then(r => r.ok, () => false)));
+// worker's offline copy). Reports progress as onProgress(done, total) and returns whether every
+// file arrived; the caller reloads. Nothing is thrown away before that, so failing offline is harmless.
+export async function downloadUpdate(onProgress = () => {}) {
+  let done = 0;
+  onProgress(0, FILES.length);
+  const ok = await Promise.all(FILES.map(f => fetch(f, { cache: 'reload' })
+    .then(r => r.ok, () => false)
+    .then(good => { onProgress(++done, FILES.length); return good; })));
   if (!ok.every(Boolean)) return false;
   try { await (await navigator.serviceWorker?.getRegistration())?.update(); } catch {}
-  location.reload();
   return true;
 }
