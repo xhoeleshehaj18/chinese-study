@@ -239,3 +239,20 @@ details.unit-list { margin: 0 0 4px 36px; }
 details.unit-list summary { padding: 6px 0; cursor: pointer; }
 .pad { padding: 8px; }
 .missed { text-align: left; margin: 12px 0; }
+
+/* Mic buttons, pitch comparison, backup nudge */
+.compare { margin-top: 4px; }
+.compare .changes, .compare .muted { margin-top: 4px; }
+.link-btn { display: block; margin: 16px auto 0; background: none; border: 0; padding: 8px; text-decoration: underline; cursor: pointer; font: inherit; text-align: center; }
+
+/* Update available bar */
+.update-bar {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 20;
+  display: flex; align-items: center; gap: 8px;
+  padding: calc(8px + env(safe-area-inset-top)) 12px 8px 16px;
+  background: var(--warn-bg); border-bottom: 1px solid var(--line);
+  font-size: 0.9rem; font-weight: 600;
+}
+.update-bar .btn { flex: none; }
+body.has-update #view { padding-top: calc(max(16px, env(safe-area-inset-top)) + 56px); }
+.row.left { justify-content: flex-start; margin: 8px 0 0; }

@@ -240,6 +240,32 @@ export const PAIR_WORDS = [
   ['再见', 'zàijiàn', 'goodbye'], ['电视', 'diànshì', 'TV'], ['睡觉', 'shuìjiào', 'to sleep'],
 ].map(([zh, py, en]) => ({ zh, py, en }));
 
+// Words where what you hear differs from the dictionary tones, for the tone-changes stage.
+// [zh, written pinyin, spoken pinyin (only when it differs), en]. Unmarked syllables are neutral tone.
+export const CHANGE_WORDS = [
+  // Neutral tone: the second syllable is short and light, its pitch set by the tone before it.
+  ['妈妈', 'māma', null, 'mom'], ['哥哥', 'gēge', null, 'older brother'], ['东西', 'dōngxi', null, 'thing'],
+  ['衣服', 'yīfu', null, 'clothes'], ['先生', 'xiānsheng', null, 'Mr. / sir'], ['他们', 'tāmen', null, 'they'],
+  ['朋友', 'péngyou', null, 'friend'], ['名字', 'míngzi', null, 'name'], ['孩子', 'háizi', null, 'child'],
+  ['什么', 'shénme', null, 'what'], ['便宜', 'piányi', null, 'cheap'], ['石头', 'shítou', null, 'stone'],
+  ['姐姐', 'jiějie', null, 'older sister'], ['喜欢', 'xǐhuan', null, 'to like'], ['我们', 'wǒmen', null, 'we'],
+  ['椅子', 'yǐzi', null, 'chair'], ['耳朵', 'ěrduo', null, 'ear'], ['奶奶', 'nǎinai', null, 'grandma'],
+  ['爸爸', 'bàba', null, 'dad'], ['谢谢', 'xièxie', null, 'thank you'], ['意思', 'yìsi', null, 'meaning'],
+  ['漂亮', 'piàoliang', null, 'pretty'], ['弟弟', 'dìdi', null, 'younger brother'], ['看看', 'kànkan', null, 'have a look'],
+  // Two 3rd tones: the first one is said as a 2nd tone.
+  ['你好', 'nǐ hǎo', 'ní hǎo', 'hello'], ['很好', 'hěn hǎo', 'hén hǎo', 'very good'], ['可以', 'kěyǐ', 'kéyǐ', 'can / may'],
+  ['水果', 'shuǐguǒ', 'shuíguǒ', 'fruit'], ['老虎', 'lǎohǔ', 'láohǔ', 'tiger'], ['小姐', 'xiǎojiě', 'xiáojiě', 'Miss'],
+  ['洗澡', 'xǐzǎo', 'xízǎo', 'to shower'], ['手表', 'shǒubiǎo', 'shóubiǎo', 'watch'], ['雨伞', 'yǔsǎn', 'yúsǎn', 'umbrella'],
+  ['所以', 'suǒyǐ', 'suóyǐ', 'so / therefore'], ['口语', 'kǒuyǔ', 'kóuyǔ', 'spoken language'], ['很远', 'hěn yuǎn', 'hén yuǎn', 'very far'],
+  // 不 (bù) becomes bú before a 4th tone, and stays bù otherwise.
+  ['不是', 'bù shì', 'bú shì', 'is not'], ['不对', 'bù duì', 'bú duì', 'not right'], ['不要', 'bù yào', 'bú yào', 'don\'t want'],
+  ['不去', 'bù qù', 'bú qù', 'not go'], ['不好', 'bù hǎo', null, 'not good'], ['不来', 'bù lái', null, 'not come'],
+  ['不喝', 'bù hē', null, 'not drink'], ['不忙', 'bù máng', null, 'not busy'],
+  // 一 (yī) becomes yí before a 4th tone and yì before tones 1–3.
+  ['一样', 'yīyàng', 'yíyàng', 'the same'], ['一定', 'yīdìng', 'yídìng', 'definitely'], ['一半', 'yībàn', 'yíbàn', 'half'],
+  ['一起', 'yīqǐ', 'yìqǐ', 'together'], ['一天', 'yī tiān', 'yì tiān', 'one day'], ['一年', 'yī nián', 'yì nián', 'one year'],
+].map(([zh, py, said, en]) => ({ zh, py, said: said || py, en }));
+
 // Sounds English speakers mix up. Each group differs in one sound only and shares a tone,
 // so the only thing to listen for is the contrast itself.
 export const SOUND_SETS = [

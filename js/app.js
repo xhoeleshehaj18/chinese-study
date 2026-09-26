@@ -1,18 +1,21 @@
-import { UNITS, TONE_SETS, TONE_INFO, PAIR_WORDS, SOUND_SETS } from './content.js';
+import { UNITS, TONE_SETS, TONE_INFO, PAIR_WORDS, CHANGE_WORDS, SOUND_SETS } from './content.js';
 import {
   state, save, today, ITEM_BY_ID, Rating, dueCards, newRemainingToday, nextNewItems, introduce,
   previewIntervals, grade, allowExtraNew, formatInterval, stats, currentStreak, exportData, importData, resetAll,
+  daysSinceBackup, requestPersistence,
 } from './store.js';
 import {
   STAGES, stageIndex, currentStage, isPassed, isUnlocked, unlockedUnitIds, gateStatus,
-  passStage, recordAnswer, undoLastAnswer, unitStatus,
+  passStage, recordAnswer, undoLastAnswer, unitStatus, weightedPick,
 } from './path.js';
 import {
   initTTS, hasChineseVoice, setRate, speak, canRecognize, recognize, matchScore,
-  canRecord, record, trackPitch, cleanContour, releaseMic,
+  canRecord, trackPitch, cleanContour, releaseMic,
 } from './speech.js';
 import { classifyTone } from './tone-grade.js';
 import { colorPinyin, syllables } from './pinyin.js';
+import { drawCompare, toneChanges } from './pitch-view.js';
+import { update, startUpdateChecks, checkForUpdate, forceUpdate } from './update.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const view = $('#view');
@@ -96,18 +99,28 @@ function audioButtons(text) {
   return el;
 }
 
-// Mic widget: speech recognition when available, otherwise record-and-playback.
-function speakCheck(target, { onResult } = {}) {
+// Mic widget. "Say it" uses speech recognition to check the words (when the browser has it).
+// "Tones" records you and draws your pitch next to the expected melody, since recognition
+// happily accepts the right words said with the wrong tones.
+// With `hidden`, anything that gives the answer away (model melody, model audio) waits until
+// el.reveal() is called.
+function speakCheck(target, { onResult, py, hidden = false } = {}) {
   const useRec = canRecognize && !recognitionBroken;
-  if (!useRec && !canRecord) return h('<div></div>');
+  const usePitch = !!(py && navigator.mediaDevices?.getUserMedia);
+  if (!useRec && !usePitch) return h('<div></div>');
   const el = h(`<div class="speak-check">
-      <button class="btn mic">🎙 ${useRec ? 'Tap and say it' : 'Record yourself'}</button>
+      <div class="row mic-row">
+        ${useRec ? '<button class="btn mic words">🎙 Say it</button>' : ''}
+        ${usePitch ? `<button class="btn mic tones">📈 ${useRec ? 'Tones' : 'Say it'}</button>` : ''}
+      </div>
       <div class="result"></div>
     </div>`);
-  const btn = $('.mic', el), out = $('.result', el);
+  const out = $('.result', el);
 
   if (useRec) {
+    const btn = $('.words', el);
     btn.onclick = async () => {
+      releaseMic(); // an open pitch-tracking stream can block recognition on some phones
       btn.disabled = true; btn.classList.add('listening'); btn.textContent = '🎙 Listening…';
       out.textContent = '';
       try {
@@ -117,42 +130,73 @@ function speakCheck(target, { onResult } = {}) {
         } else {
           const score = Math.max(...alts.map(a => matchScore(target, a)));
           const heard = alts.reduce((b, a) => (matchScore(target, a) > matchScore(target, b) ? a : b));
-          const verdict = score >= 0.99 ? ['good', '✓ Perfect'] : score >= 0.6 ? ['close', '≈ Close'] : ['miss', '✗ Not quite'];
+          // Recognition checks words, not tones, so "understood" is the honest claim.
+          const verdict = score >= 0.99 ? ['good', '✓ Understood'] : score >= 0.6 ? ['close', '≈ Close'] : ['miss', '✗ Not quite'];
           out.innerHTML = `<span class="badge ${verdict[0]}">${verdict[1]}</span> Heard: <b>${esc(heard)}</b>`;
           onResult?.(score);
         }
       } catch (e) {
         if (/not-allowed|service-not-allowed|unsupported|network/.test(e.message)) {
           recognitionBroken = true;
-          el.replaceWith(speakCheck(target, { onResult }));
+          el.replaceWith(speakCheck(target, { onResult, py }));
           return;
         }
         out.innerHTML = `<span class="muted">Didn't catch that (${esc(e.message)}). Try again.</span>`;
       }
-      btn.disabled = false; btn.classList.remove('listening'); btn.textContent = '🎙 Try again';
+      btn.disabled = false; btn.classList.remove('listening'); btn.textContent = '🎙 Say it again';
     };
-  } else {
-    let active = null;
+  }
+
+  if (usePitch) {
+    const btn = $('.tones', el);
+    const syl = syllables(py.split('/')[0]).length;
+    const changes = toneChanges(py);
+    let canvas = null, stopper = null, contour = [], revealed = !hidden;
+    const draw = () => drawCompare(canvas, py, contour, { hideModel: !revealed });
+    const modelBtn = h('<button class="btn small">🔊 Model</button>');
+    modelBtn.onclick = () => speak(target);
+    el.reveal = () => {
+      revealed = true;
+      if (!canvas) return;
+      draw();
+      $('.changes', el)?.classList.remove('hidden');
+      if (out.childElementCount && !modelBtn.isConnected) out.append(modelBtn);
+    };
     btn.onclick = async () => {
-      if (active) { active.stop(); return; }
+      if (stopper) { stopper.abort(); return; }
       speechSynthesis?.cancel();
+      if (!canvas) {
+        const box = h(`<div class="compare">
+            <canvas class="pitch compare-canvas" width="640" height="260"></canvas>
+            ${changes.length ? `<div class="changes muted small center ${revealed ? '' : 'hidden'}">Said with tone changes: ${changes.map(esc).join(', ')}</div>` : ''}
+          </div>`);
+        el.append(box);
+        canvas = $('canvas', box);
+      }
+      contour = [];
+      draw();
+      out.innerHTML = '';
+      stopper = new AbortController();
+      btn.classList.add('listening'); btn.textContent = '⏹ Stop';
       try {
-        active = await record(5000);
+        // Long enough for the phrase; stops by itself about a second after you finish.
+        const { values, url } = await trackPitch(Math.min(9000, 2000 + 550 * syl),
+          (_, vals) => { contour = cleanContour(vals); draw(); },
+          { silenceMs: 1000, signal: stopper.signal });
+        contour = cleanContour(values);
+        draw();
+        if (!contour.length) out.innerHTML = '<span class="muted">No clear voice detected. Try again, a little louder and closer.</span>';
+        if (url) {
+          const mine = h('<button class="btn small">▶ You</button>');
+          mine.onclick = () => new Audio(url).play();
+          out.append(mine);
+        }
+        if (revealed) out.append(modelBtn);
       } catch {
         out.innerHTML = '<span class="muted">Microphone permission was denied.</span>';
-        return;
       }
-      btn.classList.add('listening'); btn.textContent = '⏹ Stop';
-      const url = await active.done;
-      active = null;
-      btn.classList.remove('listening'); btn.textContent = '🎙 Record again';
-      out.innerHTML = '';
-      const mine = h('<button class="btn small">▶ You</button>');
-      const model = h('<button class="btn small">🔊 Model</button>');
-      mine.onclick = () => new Audio(url).play();
-      model.onclick = () => speak(target);
-      out.append(mine, model);
-      new Audio(url).play();
+      stopper = null;
+      btn.classList.remove('listening'); btn.textContent = `📈 ${useRec ? 'Tones' : 'Say it'} again`;
     };
   }
   return el;
@@ -195,8 +239,11 @@ function renderToday() {
     </header>
     ${hasChineseVoice() ? '' : `<div class="warn ${voicesSettled ? '' : 'hidden'}">No Chinese voice found on this device, so audio may not play. On iPhone: Settings → Accessibility → Spoken Content → Voices → Chinese. On Android: install Google Text-to-speech with Chinese.</div>`}
     <div class="stage-box"></div>
+    ${backupDue() ? `<button class="link-btn backup-nudge muted small">💾 ${backupText()} Back up your progress on the Me tab.</button>` : ''}
   </section>`);
   const box = $('.stage-box', el);
+  const nudge = $('.backup-nudge', el);
+  if (nudge) nudge.onclick = () => go('me');
   if (!stage) renderCourseDone(box);
   else if (stage.kind === 'drill') renderDrillStage(box, stage);
   else renderUnitStage(box, stage);
@@ -317,7 +364,16 @@ function stageIntro(stage, box) {
     box.innerHTML = `
       <p>In real speech, tones come in combinations, and neighbouring tones change each other. You'll hear a two-syllable word and pick its tone pair.</p>
       <p>Tip: a 3rd tone before another tone stays low and doesn't rise at the end (a "half-third").</p>
-      <p class="muted">Two 3rd tones in a row are said 2–3. That comes later, with phrases.</p>${pass}`;
+      <p class="muted">Two 3rd tones in a row are said 2–3. That's the next stage.</p>${pass}`;
+  } else if (stage.id === 'changes') {
+    box.innerHTML = `
+      <p>Pinyin shows each syllable's dictionary tone, but in real speech some tones change. You'll hear a word and pick the tones you <i>actually hear</i>. The four changes you'll meet constantly:</p>
+      <ul>
+        <li><b>Neutral tone (•):</b> the second syllable is short and light, e.g. <span class="t4">xiè</span><span class="t5">xie</span> 谢谢. Its pitch depends on the tone before it.</li>
+        <li><b>3 + 3 → 2 + 3:</b> <span class="t3">nǐ</span> <span class="t3">hǎo</span> is said <span class="t2">ní</span> <span class="t3">hǎo</span>.</li>
+        <li><b>不 bù → bú</b> before a 4th tone: <span class="t2">bú</span> <span class="t4">shì</span>, but <span class="t4">bù</span> <span class="t3">hǎo</span>.</li>
+        <li><b>一 yī → yí</b> before a 4th tone, <b>yì</b> before the others: <span class="t2">yí</span><span class="t4">yàng</span>, <span class="t4">yì</span><span class="t3">qǐ</span>.</li>
+      </ul>${pass}`;
   } else if (stage.id === 'sounds') {
     box.innerHTML = `
       <p>Some Mandarin consonants and vowels don't exist in English and are easy to confuse. You'll hear one syllable and pick which one it was. The options differ only in that sound, and they all have the same tone.</p>
@@ -348,10 +404,11 @@ function drillNext(run) {
   const gate = h(`<div class="gate-mini">${gateBox(stage)}</div>`);
   const box = h('<section class="study drill"></section>');
   view.append(box, gate);
-  const answer = correct => {
+  // `key` names what was asked (a tone, a word, a sound contrast) so misses come up more often.
+  const answer = (correct, key) => {
     run.asked++;
     if (correct) run.right++;
-    if (recordAnswer(stage, correct)) run.passedNow = true;
+    if (recordAnswer(stage, correct, key)) run.passedNow = true;
     gate.innerHTML = gateBox(stage);
   };
   const undo = correct => {
@@ -360,7 +417,7 @@ function drillNext(run) {
     undoLastAnswer(stage);
     gate.innerHTML = gateBox(stage);
   };
-  DRILLS[stage.id](box, { answer, undo, next: () => drillNext(run), run });
+  DRILLS[stage.id](box, { answer, undo, next: () => drillNext(run), run, stage });
 }
 
 function nextButton(next, label = 'Next →') {
@@ -370,9 +427,9 @@ function nextButton(next, label = 'Next →') {
 }
 
 const DRILLS = {
-  tones(box, { answer, next }) {
+  tones(box, { answer, next, stage }) {
     const set = pick(TONE_SETS);
-    const t = 1 + Math.floor(Math.random() * 4);
+    const t = weightedPick(stage, [1, 2, 3, 4], n => n);
     box.innerHTML = `
       <div class="drill-q">Which tone do you hear?</div>
       <div class="audio-row"><button class="btn round replay">🔊</button></div>
@@ -386,7 +443,7 @@ const DRILLS = {
       box.querySelector(`.choice[data-n="${t}"]`).classList.add('right');
       const fb = $('.feedback', box);
       fb.innerHTML = `<span class="py-big t${t}">${set.py[t - 1]}</span> <span class="zh">${set.zh[t - 1]}</span>`;
-      answer(n === t);
+      answer(n === t, t);
       if (n === t) return setTimeout(next, 900);
       b.classList.add('wrong');
       const cmp = h('<button class="btn small">🔊 Compare</button>');
@@ -397,10 +454,10 @@ const DRILLS = {
     }));
   },
 
-  pairs(box, { answer, next }) {
+  pairs(box, { answer, next, stage }) {
     const tonesOf = w => syllables(w.py).map(s => s.tone).join('-');
     const combos = [...new Set(PAIR_WORDS.map(tonesOf))];
-    const word = pick(PAIR_WORDS);
+    const word = weightedPick(stage, PAIR_WORDS, w => w.zh);
     const right = tonesOf(word);
     const opts = shuffle([right, ...shuffle(combos.filter(c => c !== right)).slice(0, 3)]);
     const fmt = c => c.split('-').map(n => `<span class="t${n}">${n}</span>`).join(' – ');
@@ -417,15 +474,52 @@ const DRILLS = {
       box.querySelector(`.choice[data-c="${right}"]`).classList.add('right');
       $('.feedback', box).innerHTML = `<div class="py-big">${colorPinyin(word.py)}</div><div><span class="zh">${esc(word.zh)}</span> · ${esc(word.en)}</div>`;
       const ok = b.dataset.c === right;
-      answer(ok);
+      answer(ok, word.zh);
       if (ok) return setTimeout(next, 1300);
       b.classList.add('wrong');
       box.append(nextButton(next));
     }));
   },
 
-  sounds(box, { answer, next }) {
-    const set = pick(SOUND_SETS);
+  // Hear the tones as they're actually said: neutral tones, 3–3 → 2–3, and the 不 / 一 changes.
+  changes(box, { answer, next, stage }) {
+    const tonesOf = py => syllables(py).map(s => s.tone).join('-');
+    const word = weightedPick(stage, CHANGE_WORDS, w => w.zh);
+    const right = tonesOf(word.said);
+    const written = tonesOf(word.py);
+    const [first, second] = right.split('-');
+    // Distractors that test the change itself: the dictionary tones, and the other options
+    // for the syllable that changes.
+    const near = second === '5' ? [1, 2, 3, 4].map(n => `${first}-${n}`) : [1, 2, 3, 4].map(n => `${n}-${second}`);
+    const pool = [...new Set([written, ...shuffle(near)])].filter(c => c !== right);
+    const opts = shuffle([right, ...pool.slice(0, 3)]);
+    const fmt = c => c.split('-').map(n => (n === '5' ? '<span class="t5">•</span>' : `<span class="t${n}">${n}</span>`)).join(' – ');
+    box.innerHTML = `
+      <div class="drill-q">Which tones do you actually hear?</div>
+      <div class="audio-row"><button class="btn round replay">🔊</button><button class="btn round slow">🐢</button></div>
+      <div class="choices">${opts.map(o => `<button class="choice pair" data-c="${o}">${fmt(o)}</button>`).join('')}</div>
+      <div class="muted small center">• = neutral tone (short and light)</div>
+      <div class="feedback"></div>`;
+    $('.replay', box).onclick = () => speak(word.zh);
+    $('.slow', box).onclick = () => speak(word.zh, { slow: true });
+    speak(word.zh);
+    box.querySelectorAll('.choice').forEach(b => (b.onclick = () => {
+      box.querySelectorAll('.choice').forEach(c => (c.disabled = true));
+      box.querySelector(`.choice[data-c="${right}"]`).classList.add('right');
+      const changed = word.said !== word.py;
+      $('.feedback', box).innerHTML = `<div class="py-big">${colorPinyin(word.said)}</div>
+        <div><span class="zh">${esc(word.zh)}</span> · ${esc(word.en)}</div>
+        ${changed ? `<div class="muted small">Written <b>${colorPinyin(word.py)}</b>, said <b>${colorPinyin(word.said)}</b>.</div>` : ''}`;
+      const ok = b.dataset.c === right;
+      answer(ok, word.zh);
+      if (ok) return setTimeout(next, 1500);
+      b.classList.add('wrong');
+      box.append(nextButton(next));
+    }));
+  },
+
+  sounds(box, { answer, next, stage }) {
+    const set = weightedPick(stage, SOUND_SETS, x => x.id);
     const group = pick(set.groups);
     const target = pick(group);
     box.innerHTML = `
@@ -441,7 +535,7 @@ const DRILLS = {
       box.querySelector(`.choice[data-i="${group.indexOf(target)}"]`).classList.add('right');
       const fb = $('.feedback', box);
       fb.innerHTML = `<span class="py-big">${target[1]}</span> <span class="zh">${target[0]}</span>`;
-      answer(chosen === target);
+      answer(chosen === target, set.id);
       if (chosen === target) return setTimeout(next, 900);
       b.classList.add('wrong');
       const cmp = h('<button class="btn small">🔊 Compare</button>');
@@ -452,13 +546,13 @@ const DRILLS = {
     }));
   },
 
-  say(box, { answer, undo, next, run }) {
+  say(box, { answer, undo, next, run, stage }) {
     if (!navigator.mediaDevices?.getUserMedia) {
       box.innerHTML = '<p class="muted">This browser can\'t use the microphone, so this stage can\'t be checked here. Try another browser, or skip the stage from the Me tab.</p>';
       return;
     }
     const set = pick(TONE_SETS);
-    const t = 1 + Math.floor(Math.random() * 4);
+    const t = weightedPick(stage, [1, 2, 3, 4], n => n);
     const info = TONE_INFO[t - 1];
     box.innerHTML = `
       <div class="drill-q">Say <span class="py-big t${t}">${set.py[t - 1]}</span> <span class="zh">${set.zh[t - 1]}</span></div>
@@ -486,7 +580,7 @@ const DRILLS = {
           return;
         }
         const ok = heard === t;
-        answer(ok);
+        answer(ok, t);
         $('.verdict', box).innerHTML = ok
           ? '<span class="badge good">✓ That was tone ' + t + '</span>'
           : `<span class="badge miss">✗ Sounded like tone ${heard} (${TONE_INFO[heard - 1].shape})</span>`;
@@ -655,7 +749,7 @@ function renderIntro(item) {
       <button class="btn primary big next">Got it →</button>
     </section>`);
   $('.slot-audio', el).replaceWith(audioButtons(item.zh));
-  $('.slot-speak', el).replaceWith(speakCheck(item.zh));
+  $('.slot-speak', el).replaceWith(speakCheck(item.zh, { py: item.py }));
   wireExample(el, item);
   $('.next', el).onclick = () => { introduce(item.id); advance(); };
   view.append(el);
@@ -700,7 +794,7 @@ function renderCard(cardId) {
       else $('.hint-btn', hint).textContent = '💡 More';
     };
     prompt.append(hint);
-    prompt.append(speakCheck(item.zh, { onResult: s => (suggested = s >= 0.99 ? Rating.Good : s >= 0.6 ? Rating.Hard : Rating.Again) }));
+    prompt.append(speakCheck(item.zh, { py: item.py, hidden: true, onResult: s => (suggested = s >= 0.99 ? Rating.Good : s >= 0.6 ? Rating.Hard : Rating.Again) }));
   }
 
   $('.reveal', el).onclick = () => {
@@ -712,6 +806,7 @@ function renderCard(cardId) {
     if (kind === 'speak') {
       prompt.querySelector('.phrase')?.remove();
       prompt.querySelector('.hint')?.remove();
+      prompt.querySelector('.speak-check')?.reveal?.();
       speak(item.zh);
       // Needing a hint means it wasn't a clean recall.
       if (hints) suggested = suggested === Rating.Again ? Rating.Again : Rating.Hard;
@@ -799,10 +894,12 @@ function testNext(run) {
   } else {
     let score = null;
     q.append(h(`<div class="phrase big"><div class="en prompt-en">${esc(item.en)}</div></div>`));
-    q.append(speakCheck(item.zh, { onResult: s => (score = s) }));
+    const check = speakCheck(item.zh, { py: item.py, hidden: true, onResult: s => (score = s) });
+    q.append(check);
     const reveal = h('<button class="btn primary big">Show answer</button>');
     reveal.onclick = () => {
       reveal.remove();
+      check.reveal?.();
       q.append(h(phraseBlock(item)), audioButtons(item.zh));
       speak(item.zh);
       const judge = h(`<div>
@@ -905,7 +1002,7 @@ function startShadowing() {
         <button class="btn primary big next">Next →</button>
       </section>`);
     $('.slot-audio', el).replaceWith(audioButtons(zh));
-    $('.slot-speak', el).replaceWith(speakCheck(zh));
+    $('.slot-speak', el).replaceWith(speakCheck(zh, { py }));
     $('.next', el).onclick = () => { i++; show(); };
     view.append(el);
     speak(zh);
@@ -914,6 +1011,17 @@ function startShadowing() {
 }
 
 // ---------------------------------------------------------------- me / settings
+
+function backupText() {
+  const d = daysSinceBackup();
+  return d === null ? 'No backup yet.' : d === 0 ? 'Last backup: today.' : `Last backup: ${d} day${d > 1 ? 's' : ''} ago.`;
+}
+
+// Nudges towards a backup once there's real progress to lose and none for two weeks.
+function backupDue() {
+  const d = daysSinceBackup();
+  return (state.learned.length >= 5 || state.path.stage >= 2) && (d === null || d >= 14);
+}
 
 function renderMe() {
   const s = stats();
@@ -945,8 +1053,18 @@ function renderMe() {
         <button class="btn small skip">Skip "${esc(cur.title)}"</button>
       </div>` : ''}
 
+      <h2>App updates</h2>
+      <div class="setting col"><span class="update-status">${updateText()}</span>
+        <span class="muted small">The app checks each time you open it. Force update re-downloads everything, in case something looks out of date.</span>
+        <div class="row left">
+          <button class="btn small check-update">Check now</button>
+          <button class="btn small force-update">Force update</button>
+        </div>
+      </div>
+
       <h2>Backup</h2>
-      <p class="muted small">Progress is saved on this device only. Export a backup to move it to another phone or browser.</p>
+      <p class="muted small">Progress is saved on this device only. Export a backup now and then, and to move to another phone or browser.
+        <b>${backupText()}</b></p>
       <div class="row">
         <button class="btn export">⬇ Export</button>
         <label class="btn import">⬆ Import<input type="file" accept="application/json,.json" hidden></label>
@@ -964,11 +1082,14 @@ function renderMe() {
   if (skip) skip.onclick = () => {
     if (confirm(`Skip "${cur.title}" and unlock the next stage?`)) { passStage(cur); go('today'); }
   };
+  $('.check-update', el).onclick = () => checkForUpdate({ force: true });
+  $('.force-update', el).onclick = runForceUpdate;
   $('.export', el).onclick = () => {
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([exportData()], { type: 'application/json' }));
-    a.download = `chinese-progress-${new Date().toISOString().slice(0, 10)}.json`;
+    a.download = `chinese-progress-${today()}.json`;
     a.click();
+    go('me');
   };
   $('.import input', el).onchange = async e => {
     const f = e.target.files[0];
@@ -982,6 +1103,45 @@ function renderMe() {
   view.append(el);
 }
 
+// ---------------------------------------------------------------- updates
+
+function updateText() {
+  const at = update.checkedAt?.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  return {
+    checking: 'Checking for updates…',
+    current: `✓ Up to date (checked ${at})`,
+    available: '✨ A new version is available.',
+    offline: `Couldn't check: you seem to be offline${at ? ` (${at})` : ''}.`,
+  }[update.status];
+}
+
+async function runForceUpdate() {
+  document.querySelectorAll('.force-update').forEach(b => { b.disabled = true; b.textContent = 'Updating…'; });
+  if (!(await forceUpdate())) {
+    alert('Couldn\'t download the update. Check your connection and try again.');
+    document.querySelectorAll('.force-update').forEach(b => { b.disabled = false; b.textContent = b.dataset.label || 'Force update'; });
+  }
+}
+
+// A bar at the top when a new version is out. Dismissing it hides it until the next time the app is opened.
+const updateBar = h(`<div class="update-bar hidden" role="status">
+    <span class="grow">✨ A new version is available.</span>
+    <button class="btn small force-update" data-label="Update">Update</button>
+    <button class="icon-btn dismiss" aria-label="Not now">✕</button>
+  </div>`);
+document.body.prepend(updateBar);
+$('.force-update', updateBar).onclick = runForceUpdate;
+let updateDismissed = false;
+$('.dismiss', updateBar).onclick = () => { updateDismissed = true; showUpdate(); };
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') updateDismissed = false; });
+
+function showUpdate() {
+  const show = update.status === 'available' && !updateDismissed;
+  updateBar.classList.toggle('hidden', !show);
+  document.body.classList.toggle('has-update', show);
+  document.querySelectorAll('.update-status').forEach(e => { e.textContent = updateText(); });
+}
+
 // ---------------------------------------------------------------- boot
 
 initTTS(() => {
@@ -990,8 +1150,10 @@ initTTS(() => {
   else $('.warn')?.classList.remove('hidden');
 });
 setRate(state.settings.rate);
+requestPersistence();
 go('today');
 
 if ('serviceWorker' in navigator && location.protocol === 'https:') {
   navigator.serviceWorker.register('sw.js').catch(() => {});
 }
+startUpdateChecks(showUpdate);

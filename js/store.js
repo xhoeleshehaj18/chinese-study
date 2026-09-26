@@ -10,16 +10,37 @@ export const ITEM_BY_ID = Object.fromEntries(ITEMS.map(i => [i.id, i]));
 export const KINDS = ['listen', 'speak'];
 export { Rating, State };
 
+const VERSION = 2;
+
 const defaults = () => ({
-  version: 1,
+  version: VERSION,
   cards: {},            // "itemId:kind" -> FSRS card
   learned: [],          // item ids in the order they were introduced
   settings: { newPerDay: 5, rate: 0.85, showHanzi: true },
   day: { date: today(), newCount: 0, reviews: 0 },
   streak: { last: null, count: 0 },
   // Stage-by-stage progression (see path.js).
-  path: { stage: 0, hist: {}, passed: {}, unitIntro: {}, testTried: {} },
+  path: { stage: 0, hist: {}, passed: {}, unitIntro: {}, testTried: {}, miss: {} },
+  lastBackup: null,     // date of the last export
 });
+
+// Brings saved progress from older versions up to date.
+function migrate(s) {
+  const v = s.version || 1;
+  // v2 inserted "Hear tone changes" as stage 3. Anyone already past stage 2 keeps their place
+  // and gets the new stage marked as passed (it can still be practised from the Path tab).
+  if (v < 2 && s.path?.stage >= 2) {
+    s.path.stage++;
+    s.path.passed = { ...s.path.passed, changes: today() };
+  }
+  s.version = VERSION;
+  return s;
+}
+
+function merge(s) {
+  const d = defaults();
+  return { ...d, ...s, settings: { ...d.settings, ...s.settings }, path: { ...d.path, ...s.path } };
+}
 
 export function today(d = new Date()) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -28,16 +49,13 @@ export function today(d = new Date()) {
 function load() {
   try {
     const raw = localStorage.getItem(KEY);
-    if (raw) {
-      const s = JSON.parse(raw);
-      const d = defaults();
-      return { ...d, ...s, settings: { ...d.settings, ...s.settings }, path: { ...d.path, ...s.path } };
-    }
+    if (raw) return merge(migrate(JSON.parse(raw)));
   } catch {}
   return defaults();
 }
 
 export const state = load();
+save(); // writes any migration straight away
 
 export function save() {
   try { localStorage.setItem(KEY, JSON.stringify(state)); } catch {}
@@ -136,15 +154,27 @@ export function stats() {
 }
 
 export function exportData() {
+  state.lastBackup = today();
+  save();
   return JSON.stringify(state, null, 1);
+}
+
+// Days since the last export, or null if there's never been one.
+export function daysSinceBackup() {
+  if (!state.lastBackup) return null;
+  return Math.round((new Date(today()) - new Date(state.lastBackup)) / 86400000);
+}
+
+// Asks the browser not to clear saved progress when storage runs low.
+export function requestPersistence() {
+  navigator.storage?.persist?.().catch(() => {});
 }
 
 export function importData(json) {
   const s = JSON.parse(json);
   if (!s || typeof s.cards !== 'object' || !Array.isArray(s.learned)) throw new Error('Not a valid backup file');
   Object.keys(state).forEach(k => delete state[k]);
-  const d = defaults();
-  Object.assign(state, d, s, { settings: { ...d.settings, ...s.settings }, path: { ...d.path, ...s.path } });
+  Object.assign(state, merge(migrate(s)));
   save();
 }
 

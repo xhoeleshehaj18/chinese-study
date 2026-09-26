@@ -130,11 +130,28 @@ export async function record(ms = 4000) {
 
 let audioCtx = null;
 
-export function detectPitch(buf, sampleRate) {
+// Averages every `f` samples. Voice pitch (70–450 Hz) survives easily at ~16 kHz,
+// and the autocorrelation below gets about 9× cheaper, which matters on a phone at 60 frames a second.
+function decimate(buf, f) {
+  if (f === 1) return buf;
+  const out = new Float32Array(Math.floor(buf.length / f));
+  for (let i = 0; i < out.length; i++) {
+    let s = 0;
+    for (let k = 0; k < f; k++) s += buf[i * f + k];
+    out[i] = s / f;
+  }
+  return out;
+}
+
+export function detectPitch(input, inputRate) {
   let rms = 0;
-  for (let i = 0; i < buf.length; i++) rms += buf[i] * buf[i];
-  rms = Math.sqrt(rms / buf.length);
+  for (let i = 0; i < input.length; i++) rms += input[i] * input[i];
+  rms = Math.sqrt(rms / input.length);
   if (rms < 0.012) return null;
+
+  const f = Math.max(1, Math.floor(inputRate / 16000));
+  const buf = decimate(input, f);
+  const sampleRate = inputRate / f;
 
   const minLag = Math.floor(sampleRate / 450);
   const maxLag = Math.floor(sampleRate / 70);
@@ -164,9 +181,11 @@ export function detectPitch(buf, sampleRate) {
   return sampleRate / (bestLag + shift);
 }
 
-// Tracks pitch for `ms` milliseconds. onFrame(hzOrNull) is called ~60×/s.
+// Tracks pitch for up to `ms` milliseconds. onFrame(hzOrNull, values) is called ~60×/s.
+// Options: silenceMs stops early once you've spoken and then gone quiet for that long;
+// signal (an AbortSignal) stops on demand.
 // Resolves with the array of Hz values (null where unvoiced) and a recording URL.
-export async function trackPitch(ms, onFrame) {
+export async function trackPitch(ms, onFrame, { silenceMs = 0, signal } = {}) {
   const s = await getStream();
   audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
   if (audioCtx.state === 'suspended') await audioCtx.resume();
@@ -178,13 +197,17 @@ export async function trackPitch(ms, onFrame) {
   const values = [];
   const recording = canRecord ? await record(ms) : null;
   const start = performance.now();
+  let lastVoice = null;
   await new Promise(res => {
     const tick = () => {
       analyser.getFloatTimeDomainData(buf);
       const hz = detectPitch(buf, audioCtx.sampleRate);
+      const now = performance.now();
+      if (hz) lastVoice = now;
       values.push(hz);
       onFrame?.(hz, values);
-      if (performance.now() - start < ms) requestAnimationFrame(tick);
+      const quiet = silenceMs && lastVoice !== null && now - lastVoice > silenceMs;
+      if (now - start < ms && !quiet && !signal?.aborted) requestAnimationFrame(tick);
       else res();
     };
     tick();

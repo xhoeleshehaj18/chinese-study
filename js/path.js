@@ -7,6 +7,7 @@ import { state, save, today, markStudied, State, KINDS } from './store.js';
 export const STAGES = [
   { id: 'tones', kind: 'drill', emoji: '👂', title: 'Hear the four tones', window: 50, need: 49 },
   { id: 'pairs', kind: 'drill', emoji: '👂', title: 'Hear tone pairs', window: 50, need: 49 },
+  { id: 'changes', kind: 'drill', emoji: '👂', title: 'Hear tone changes', window: 50, need: 49 },
   { id: 'sounds', kind: 'drill', emoji: '👂', title: 'Hear tricky sounds', window: 50, need: 49 },
   { id: 'say', kind: 'drill', emoji: '🗣', title: 'Say the four tones', window: 50, need: 45 },
   ...UNITS.map(u => ({ id: u.id, kind: 'unit', emoji: u.emoji, title: u.title, unit: u })),
@@ -30,11 +31,34 @@ export function passStage(stage) {
   save();
 }
 
-// Records one drill answer. Returns true when this answer passed the current stage.
-export function recordAnswer(stage, correct) {
+// Drills lean towards what you get wrong. Each miss makes that item (a tone, a word, a sound
+// contrast) come up more often, up to 4× as often; each right answer slowly brings it back to normal.
+const missesFor = stage => (state.path.miss[stage.id] ||= {});
+let lastMiss = null; // for undo
+
+export function weightedPick(stage, options, keyOf) {
+  const m = missesFor(stage);
+  const weights = options.map(o => 1 + (m[keyOf(o)] || 0));
+  let r = Math.random() * weights.reduce((a, b) => a + b, 0);
+  return options.find((_, i) => (r -= weights[i]) < 0) ?? options[options.length - 1];
+}
+
+function noteMiss(stage, key, correct) {
+  const m = missesFor(stage);
+  const prev = m[key] || 0;
+  lastMiss = { stage, key, prev };
+  const next = correct ? Math.max(0, prev - 0.5) : Math.min(3, prev + 1);
+  if (next) m[key] = next;
+  else delete m[key];
+}
+
+// Records one drill answer. `key` names what was asked, for weighting.
+// Returns true when this answer passed the current stage.
+export function recordAnswer(stage, correct, key) {
   const h = (state.path.hist[stage.id] ||= []);
   h.push(correct ? 1 : 0);
   if (h.length > stage.window) h.splice(0, h.length - stage.window);
+  if (key !== undefined) noteMiss(stage, key, correct);
   markStudied();
   save();
   if (stage === currentStage() && gateStatus(stage).met) { passStage(stage); return true; }
@@ -43,6 +67,12 @@ export function recordAnswer(stage, correct) {
 
 export function undoLastAnswer(stage) {
   state.path.hist[stage.id]?.pop();
+  if (lastMiss?.stage === stage) {
+    const m = missesFor(stage);
+    if (lastMiss.prev) m[lastMiss.key] = lastMiss.prev;
+    else delete m[lastMiss.key];
+    lastMiss = null;
+  }
   save();
 }
 
