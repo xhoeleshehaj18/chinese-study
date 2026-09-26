@@ -8,7 +8,7 @@ const FILES = [
   'css/style.css',
   'js/app.js', 'js/content.js', 'js/path.js', 'js/pinyin.js', 'js/pitch-view.js',
   'js/speech.js', 'js/store.js', 'js/tone-grade.js', 'js/update.js',
-  'vendor/ts-fsrs.mjs', 'sw.js',
+  'vendor/ts-fsrs.mjs', 'sw.js', 'audio/manifest.json',
 ];
 const MIN_GAP = 60 * 1000; // don't re-check more often than this when switching apps a lot
 

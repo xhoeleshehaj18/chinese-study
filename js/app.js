@@ -9,7 +9,7 @@ import {
   passStage, recordAnswer, undoLastAnswer, unitStatus, weightedPick,
 } from './path.js';
 import {
-  initTTS, hasChineseVoice, setRate, speak, canRecognize, recognize, matchScore,
+  initTTS, hasChineseVoice, setRate, speak, stopSpeaking, canRecognize, recognize, matchScore,
   canRecord, trackPitch, cleanContour, releaseMic,
 } from './speech.js';
 import { classifyTone } from './tone-grade.js';
@@ -42,7 +42,7 @@ function go(tab) {
   document.body.classList.remove('in-session');
   clearInterval(waitTimer);
   session = null;
-  speechSynthesis?.cancel();
+  stopSpeaking();
   releaseMic();
   view.replaceChildren();
   TABS[tab]();
@@ -53,7 +53,7 @@ document.querySelectorAll('#nav button').forEach(b => b.addEventListener('click'
 
 // Clears the screen for the next step of a session or drill.
 function freshScreen(fraction, onClose) {
-  speechSynthesis?.cancel();
+  stopSpeaking();
   view.replaceChildren();
   window.scrollTo(0, 0);
   document.body.classList.add('in-session');
@@ -164,7 +164,7 @@ function speakCheck(target, { onResult, py, hidden = false } = {}) {
     };
     btn.onclick = async () => {
       if (stopper) { stopper.abort(); return; }
-      speechSynthesis?.cancel();
+      stopSpeaking();
       if (!canvas) {
         const box = h(`<div class="compare">
             <canvas class="pitch compare-canvas" width="640" height="260"></canvas>
@@ -567,7 +567,7 @@ const DRILLS = {
     $('.replay', box).onclick = () => speak(set.zh[t - 1]);
     const rec = $('.rec', box);
     rec.onclick = async () => {
-      speechSynthesis?.cancel();
+      stopSpeaking();
       rec.disabled = true; rec.classList.add('listening'); rec.textContent = '🎙 Speak now…';
       try {
         const { values, url } = await trackPitch(1600, (_, vals) => drawPitch(canvas, t, cleanContour(vals)));

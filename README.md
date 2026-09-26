@@ -28,7 +28,9 @@ Drills lean towards what you get wrong: a tone, word or sound you miss comes up 
 You can skip a stage on the **Me** tab if you already know it.
 
 ## Files
-- `js/content.js`: phrase units, tone syllables, tone-pair words and sound contrasts. Add units here.
+- `js/content.js`: phrase units, tone syllables, tone-pair words and sound contrasts. Add units here, then regenerate the audio (below).
+- `audio/`: a natural-voice clip (Microsoft's neural voice Xiaoxiao, via [edge-tts](https://github.com/rany2/edge-tts)) for every word and sentence the app says, named by a hash of the text, plus `manifest.json`. Anything without a clip falls back to the browser's own text-to-speech, which sounds more robotic.
+- `tools/make_audio.py`: makes the clips. After editing `content.js`, run `python3 tools/make_audio.py` (needs `pip install edge-tts` and ffmpeg). It only makes new clips and deletes ones no longer used.
 - `js/path.js`: stage list, pass marks and unlocking.
 - `js/store.js`: progress in `localStorage` and FSRS scheduling ([ts-fsrs](https://github.com/open-spaced-repetition/ts-fsrs), MIT, vendored in `vendor/`).
 - `js/speech.js`: text-to-speech, speech recognition, recording, pitch detection.
@@ -44,6 +46,6 @@ Then open http://localhost:8123.
 
 Progress lives in the browser. Use **Me → Export** to back it up or move it to another device; the Today tab reminds you if it's been two weeks. The app also asks the browser to keep its storage persistent.
 
-`sw.js` caches the app for offline use. Add any new file to its `CORE` list (and to `FILES` in `js/update.js`) and bump `CACHE`.
+`sw.js` caches the app for offline use. Add any new file to its `CORE` list (and to `FILES` in `js/update.js`) and bump `CACHE`. Voice clips go in a separate cache that survives updates: the service worker downloads all of them (about 4 MB) in the background when a new version activates, and caches any others as they're played. Bump `CACHE` after regenerating the audio so new clips are downloaded for offline use too.
 
 `js/update.js` checks for a new version whenever the app is opened or brought back to the foreground. It compares each file's ETag / Last-Modified with the copy that's running, so there's no version number to bump. A pill slides down from the top while it checks ("Checking for updates…" → "Up to date", then it slides away). When something changed, it offers **Update**, shows the download progress and restarts the app. Me → App updates has **Check now** and **Force update**; Force update re-downloads every file past the browser cache before reloading, so it's safe to press offline.
