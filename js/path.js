@@ -1,13 +1,16 @@
 // The course path: one stage at a time, each unlocked only when the previous one is mastered.
 import { UNITS } from './content.js';
+import { PHRASE_LEVELS } from './phrase-tones.js';
 import { state, save, today, markStudied, State, KINDS } from './store.js';
 
 // Listening drills pass at 98% of the last 50 answers. Saying tones is judged by an automatic
 // pitch tracker, which is itself less accurate than 98%, so that stage passes at 90%.
+// A stage with `levels` (their labels) moves up a level each time it reaches the pass mark, and passes on the last one.
 export const STAGES = [
   { id: 'tones', kind: 'drill', emoji: '👂', title: 'Hear the four tones', window: 50, need: 49 },
   { id: 'pairs', kind: 'drill', emoji: '👂', title: 'Hear tone pairs', window: 50, need: 49 },
   { id: 'changes', kind: 'drill', emoji: '👂', title: 'Hear tone changes', window: 50, need: 49 },
+  { id: 'phrases', kind: 'drill', emoji: '👂', title: 'Hear tones in phrases', window: 50, need: 49, levels: PHRASE_LEVELS.map(l => l.label) },
   { id: 'sounds', kind: 'drill', emoji: '👂', title: 'Hear tricky sounds', window: 50, need: 49 },
   { id: 'say', kind: 'drill', emoji: '🗣', title: 'Say the four tones', window: 50, need: 45 },
   ...UNITS.map(u => ({ id: u.id, kind: 'unit', emoji: u.emoji, title: u.title, unit: u })),
@@ -25,6 +28,12 @@ export function gateStatus(stage) {
   return { hist, right, n: hist.length, met: hist.length >= stage.window && right >= stage.need };
 }
 
+// The level you're working on (1-based). A passed or skipped stage is practised at its top level.
+export function levelOf(stage) {
+  if (!stage.levels) return 1;
+  return isPassed(stage) ? stage.levels.length : Math.min(state.path.level[stage.id] || 1, stage.levels.length);
+}
+
 export function passStage(stage) {
   state.path.passed[stage.id] = today();
   if (stage === currentStage()) state.path.stage++;
@@ -36,9 +45,10 @@ export function passStage(stage) {
 const missesFor = stage => (state.path.miss[stage.id] ||= {});
 let lastMiss = null; // for undo
 
+export const missWeight = (stage, key) => 1 + (missesFor(stage)[key] || 0);
+
 export function weightedPick(stage, options, keyOf) {
-  const m = missesFor(stage);
-  const weights = options.map(o => 1 + (m[keyOf(o)] || 0));
+  const weights = options.map(o => missWeight(stage, keyOf(o)));
   let r = Math.random() * weights.reduce((a, b) => a + b, 0);
   return options.find((_, i) => (r -= weights[i]) < 0) ?? options[options.length - 1];
 }
@@ -55,14 +65,29 @@ function noteMiss(stage, key, correct) {
 // Records one drill answer. `key` names what was asked, for weighting.
 // Returns true when this answer passed the current stage.
 export function recordAnswer(stage, correct, key) {
+  return recordAnswers(stage, [{ correct, key }]) === 'passed';
+}
+
+// Records several answers from one question (e.g. each tone in a phrase).
+// Returns 'passed' when they passed the current stage, 'level' when they finished a level.
+export function recordAnswers(stage, answers) {
   const h = (state.path.hist[stage.id] ||= []);
-  h.push(correct ? 1 : 0);
+  for (const { correct, key } of answers) {
+    h.push(correct ? 1 : 0);
+    if (key !== undefined) noteMiss(stage, key, correct);
+  }
   if (h.length > stage.window) h.splice(0, h.length - stage.window);
-  if (key !== undefined) noteMiss(stage, key, correct);
   markStudied();
   save();
-  if (stage === currentStage() && gateStatus(stage).met) { passStage(stage); return true; }
-  return false;
+  if (stage !== currentStage() || !gateStatus(stage).met) return null;
+  if (stage.levels && levelOf(stage) < stage.levels.length) {
+    state.path.level[stage.id] = levelOf(stage) + 1;
+    state.path.hist[stage.id] = []; // each level starts its count afresh
+    save();
+    return 'level';
+  }
+  passStage(stage);
+  return 'passed';
 }
 
 export function undoLastAnswer(stage) {

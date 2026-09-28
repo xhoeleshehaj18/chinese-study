@@ -6,7 +6,7 @@
 const FILES = [
   './', 'index.html', 'manifest.webmanifest',
   'css/style.css',
-  'js/app.js', 'js/content.js', 'js/path.js', 'js/pinyin.js', 'js/pitch-view.js',
+  'js/app.js', 'js/content.js', 'js/path.js', 'js/phrase-tones.js', 'js/pinyin.js', 'js/pitch-view.js',
   'js/speech.js', 'js/store.js', 'js/tone-grade.js', 'js/update.js',
   'vendor/ts-fsrs.mjs', 'sw.js', 'audio/manifest.json',
 ];

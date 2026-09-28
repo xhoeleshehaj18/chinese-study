@@ -6,8 +6,9 @@ import {
 } from './store.js';
 import {
   STAGES, stageIndex, currentStage, isPassed, isUnlocked, unlockedUnitIds, gateStatus,
-  passStage, recordAnswer, undoLastAnswer, unitStatus, weightedPick,
+  passStage, recordAnswers, undoLastAnswer, unitStatus, weightedPick, missWeight, levelOf,
 } from './path.js';
+import { PHRASE_LEVELS, phrasesFor, weightedSample, toneless, withTone } from './phrase-tones.js';
 import {
   initTTS, hasChineseVoice, setRate, speak, stopSpeaking, canRecognize, recognize, matchScore,
   canRecord, trackPitch, cleanContour, releaseMic,
@@ -219,11 +220,14 @@ function gateBox(stage) {
     return `<i class="${v === 1 ? 'ok' : v === 0 ? 'no' : ''}"></i>`;
   }).join('');
   const pct = g.n ? Math.round((100 * g.right) / g.n) : 0;
+  const lv = levelOf(stage);
+  const moreLevels = stage.levels && lv < stage.levels.length;
   return `<div class="gate">
+      ${stage.levels ? `<div class="gate-level"><b>Level ${lv} of ${stage.levels.length}</b> · ${esc(stage.levels[lv - 1])}</div>` : ''}
       <div class="dots">${cells}</div>
       <div class="gate-text">${!g.n ? 'No answers yet'
         : g.n < stage.window ? `<b>${g.right}/${g.n}</b> right so far`
-        : `<b>${g.right}/${stage.window}</b> right in your last ${stage.window} <span class="muted">(${pct}%)</span>`} · pass at <b>${stage.need} of your last ${stage.window}</b></div>
+        : `<b>${g.right}/${stage.window}</b> right in your last ${stage.window} <span class="muted">(${pct}%)</span>`} · ${moreLevels ? 'next level' : 'pass'} at <b>${stage.need} of your last ${stage.window}</b></div>
     </div>`;
 }
 
@@ -374,6 +378,14 @@ function stageIntro(stage, box) {
         <li><b>不 bù → bú</b> before a 4th tone: <span class="t2">bú</span> <span class="t4">shì</span>, but <span class="t4">bù</span> <span class="t3">hǎo</span>.</li>
         <li><b>一 yī → yí</b> before a 4th tone, <b>yì</b> before the others: <span class="t2">yí</span><span class="t4">yàng</span>, <span class="t4">yì</span><span class="t3">qǐ</span>.</li>
       </ul>${pass}`;
+  } else if (stage.id === 'phrases') {
+    box.innerHTML = `
+      <p>Now the tones inside real phrases, at natural speed. In a sentence, tones are shorter and run into each other, and the whole sentence has its own melody, so they're harder to catch than in single words.</p>
+      <p>You'll hear a phrase and see its pinyin with some tones left out. Tap a gap, then the tone you hear (• = neutral tone). Pick the tone that's actually <i>said</i>: 你好 is ${colorPinyin('ní hǎo')}.</p>
+      <p><b>${stage.levels.length} levels</b>, one after the other:</p>
+      <ol>${stage.levels.map(l => `<li>${esc(l)}</li>`).join('')}</ol>
+      <p><b>To move up:</b> each tone you fill in counts as one answer. At ${stage.need} right out of your last ${stage.window} you go up a level, and the count starts again. Reach it on level ${stage.levels.length} to pass.</p>
+      <p class="muted">Syllables with a dotted underline are runs of three or more 3rd tones. Speakers split those differently (我很好 can be wó hén hǎo or wǒ hén hǎo), so they're never asked.</p>`;
   } else if (stage.id === 'sounds') {
     box.innerHTML = `
       <p>Some Mandarin consonants and vowels don't exist in English and are easy to confuse. You'll hear one syllable and pick which one it was. The options differ only in that sound, and they all have the same tone.</p>
@@ -390,7 +402,7 @@ function stageIntro(stage, box) {
   }
 }
 
-// ---------------------------------------------------------------- drills (stages 1–4)
+// ---------------------------------------------------------------- drills (stages 1–5)
 
 function startDrill(stage) {
   drillNext({ stage, asked: 0, right: 0, size: 20, passedNow: false });
@@ -400,15 +412,24 @@ function drillNext(run) {
   const { stage } = run;
   freshScreen(run.asked / run.size, () => go(stage === currentStage() ? 'today' : 'path'));
   if (run.passedNow) return renderStagePassed(stage);
+  if (run.levelUp) return renderLevelUp(run);
   if (run.asked >= run.size) return renderDrillDone(run);
   const gate = h(`<div class="gate-mini">${gateBox(stage)}</div>`);
   const box = h('<section class="study drill"></section>');
   view.append(box, gate);
   // `key` names what was asked (a tone, a word, a sound contrast) so misses come up more often.
+  // A question with several parts passes a list of { correct, key } instead.
   const answer = (correct, key) => {
     run.asked++;
-    if (correct) run.right++;
-    if (recordAnswer(stage, correct, key)) run.passedNow = true;
+    const parts = Array.isArray(correct) ? correct : [{ correct, key }];
+    if (parts.every(p => p.correct)) run.right++;
+    if (Array.isArray(correct)) {
+      run.parts = (run.parts || 0) + parts.length;
+      run.partsRight = (run.partsRight || 0) + parts.filter(p => p.correct).length;
+    }
+    const result = recordAnswers(stage, parts);
+    if (result === 'passed') run.passedNow = true;
+    if (result === 'level') run.levelUp = true;
     gate.innerHTML = gateBox(stage);
   };
   const undo = correct => {
@@ -425,6 +446,8 @@ function nextButton(next, label = 'Next →') {
   b.onclick = next;
   return b;
 }
+
+let lastPhrase = null; // so the same phrase doesn't come up twice in a row
 
 const DRILLS = {
   tones(box, { answer, next, stage }) {
@@ -516,6 +539,78 @@ const DRILLS = {
       b.classList.add('wrong');
       box.append(nextButton(next));
     }));
+  },
+
+  // A natural phrase with some tones left out: more of them, in longer phrases, level by level.
+  phrases(box, { answer, next, stage }) {
+    const level = PHRASE_LEVELS[levelOf(stage) - 1];
+    const weight = s => missWeight(stage, s.tone);
+    const pool = phrasesFor(levelOf(stage)).filter(p => p.zh !== lastPhrase);
+    const [phrase] = weightedSample(pool, p => Math.max(...p.syl.filter(s => s.ask).map(weight)), 1);
+    lastPhrase = phrase.zh;
+    const { syl } = phrase;
+    const askable = syl.map((_, i) => i).filter(i => syl[i].ask);
+    const blanks = weightedSample(askable, i => weight(syl[i]), level.blanks).sort((a, b) => a - b);
+    const picked = {};
+    let active = blanks[0];
+    let checked = false;
+
+    const chip = (s, i) => {
+      const cls = `syl${s.pauseBefore && i ? ' pause' : ''}`;
+      if (!blanks.includes(i)) {
+        if (!s.ask) return `<span class="${cls} fixed">${esc(checked ? s.text : toneless(s.text))}</span>`;
+        return `<span class="${cls}"><span class="t${s.tone}">${esc(s.said)}</span></span>`;
+      }
+      const mine = picked[i] && withTone(toneless(s.text), picked[i]);
+      if (checked) {
+        const ok = picked[i] === s.tone;
+        return `<span class="${cls} blank ${ok ? 'right' : 'wrong'}"><span class="t${s.tone}">${esc(s.said)}</span>${ok ? '' : `<s class="t${picked[i]}">${esc(mine)}</s>`}</span>`;
+      }
+      return `<button class="${cls} blank${mine ? ' filled' : ''}${i === active ? ' active' : ''}" data-i="${i}">${mine ? `<span class="t${picked[i]}">${esc(mine)}</span>` : `<span class="gap">${esc(toneless(s.text))}</span>`}</button>`;
+    };
+    const many = blanks.length > 1;
+    box.innerHTML = `
+      <div class="drill-q">${many ? 'Which tones do you hear?' : 'Which tone goes in the gap?'}</div>
+      <div class="audio-row"><button class="btn round replay">🔊</button><button class="btn round slow">🐢</button></div>
+      <div class="syl-row"></div>
+      ${syl.some(s => !s.ask) ? '<div class="muted small center">Dotted: a run of 3rd tones, not asked.</div>' : ''}
+      <div class="choices five">${[1, 2, 3, 4, 5].map(n => `<button class="choice" data-n="${n}">${n === 5 ? '<b class="t5 dot">•</b>' : toneShapeSvg(n, 40, 26)}<span>${n === 5 ? 'light' : n}</span></button>`).join('')}</div>
+      ${many ? '<button class="btn primary big check" disabled>Check</button>' : ''}
+      <div class="feedback"></div>`;
+    const row = $('.syl-row', box);
+    const pad = box.querySelectorAll('.choice');
+    const checkBtn = $('.check', box);
+    const draw = () => {
+      row.innerHTML = syl.map(chip).join('');
+      row.querySelectorAll('button.blank').forEach(b => (b.onclick = () => { active = +b.dataset.i; draw(); }));
+      if (checkBtn) checkBtn.disabled = blanks.some(i => !picked[i]);
+    };
+    const check = () => {
+      checked = true;
+      draw();
+      pad.forEach(c => (c.disabled = true));
+      checkBtn?.remove();
+      const parts = blanks.map(i => ({ correct: picked[i] === syl[i].tone, key: syl[i].tone }));
+      const changed = blanks.map(i => syl[i]).filter(s => s.said !== s.text);
+      $('.feedback', box).innerHTML = `<div class="center"><span class="zh">${esc(phrase.zh)}</span> · ${esc(phrase.en)}</div>
+        ${changed.length ? `<div class="muted small center">${changed.map(s => `${esc(s.text)} → ${colorPinyin(s.said)}`).join(', ')}: a 3rd tone before another 3rd tone is said as a 2nd tone.</div>` : ''}`;
+      answer(parts);
+      if (!many && parts[0].correct) return setTimeout(next, 1500);
+      box.append(nextButton(next));
+    };
+    pad.forEach(b => (b.onclick = () => {
+      picked[active] = +b.dataset.n;
+      if (!many) return check();
+      // On to the next gap that's still empty (wrapping round), or stay put once all are filled.
+      const after = [...blanks.filter(i => i > active), ...blanks.filter(i => i <= active)];
+      active = after.find(i => !picked[i]) ?? active;
+      draw();
+    }));
+    if (checkBtn) checkBtn.onclick = check;
+    $('.replay', box).onclick = () => speak(phrase.zh);
+    $('.slow', box).onclick = () => speak(phrase.zh, { slow: true });
+    draw();
+    speak(phrase.zh);
   },
 
   sounds(box, { answer, next, stage }) {
@@ -643,7 +738,8 @@ function drawPitch(canvas, tone, contour) {
 function renderDrillDone(run) {
   releaseMic();
   const el = h(`<section class="study done">
-      <h2>${run.right}/${run.size} this round</h2>
+      <h2>${run.parts ? `${run.partsRight}/${run.parts} tones` : `${run.right}/${run.size}`} this round</h2>
+      ${run.parts ? `<p class="muted">${run.right} of ${run.size} phrases fully right</p>` : ''}
       ${gateBox(run.stage)}
       <p class="muted">${run.stage === currentStage() ? 'Keep going until you hit the pass mark. Short daily rounds beat one long cram.' : 'Practice round on a stage you\'ve already passed.'}</p>
     </section>`);
@@ -651,6 +747,20 @@ function renderDrillDone(run) {
   const home = h('<button class="btn big">Done for now</button>');
   home.onclick = () => go(run.stage === currentStage() ? 'today' : 'path');
   el.append(again, home);
+  view.append(el);
+}
+
+function renderLevelUp(run) {
+  const { stage } = run;
+  const lv = levelOf(stage);
+  const el = h(`<section class="study done">
+      <div class="big-emoji">⬆️</div>
+      <h2>Level ${lv} of ${stage.levels.length}</h2>
+      <p>You've mastered level ${lv - 1}. Next up:</p>
+      <div class="card"><div class="unit-title">${esc(stage.levels[lv - 1])}</div></div>
+      <p class="muted">Your count starts again for the new level.</p>
+    </section>`);
+  el.append(nextButton(() => { run.levelUp = false; drillNext(run); }, 'Continue'));
   view.append(el);
 }
 

@@ -17,7 +17,7 @@ const NEUTRAL_WIDTH = 0.55;
 const TO_SECOND = { ǎ: 'á', ě: 'é', ǐ: 'í', ǒ: 'ó', ǔ: 'ú', ǚ: 'ǘ', Ǎ: 'Á', Ě: 'É', Ǐ: 'Í', Ǒ: 'Ó', Ǔ: 'Ú', Ǚ: 'Ǘ' };
 const PAUSE = /[，,。.!?！？—…;；:：]/;
 
-// Returns [{ text, said, tone, pts, w }] per syllable, where tone is the tone actually spoken.
+// Returns [{ text, said, tone, pts, w, pauseBefore }] per syllable, where tone is the tone actually spoken.
 export function modelContour(py) {
   const syl = [];
   let pauseBefore = false;
@@ -39,7 +39,7 @@ export function modelContour(py) {
     else if (tone === 3 && next && !next.pauseBefore) pts = HALF_THIRD;
     else pts = FULL[tone];
     const said = s.said ? [...s.text].map(c => TO_SECOND[c] || c).join('') : s.text;
-    return { text: s.text, said, tone, pts, w: tone === 5 ? NEUTRAL_WIDTH : 1 };
+    return { text: s.text, said, tone, pts, w: tone === 5 ? NEUTRAL_WIDTH : 1, pauseBefore: s.pauseBefore };
   });
 }
 

@@ -10,7 +10,7 @@ export const ITEM_BY_ID = Object.fromEntries(ITEMS.map(i => [i.id, i]));
 export const KINDS = ['listen', 'speak'];
 export { Rating, State };
 
-const VERSION = 2;
+const VERSION = 3;
 
 const defaults = () => ({
   version: VERSION,
@@ -20,7 +20,7 @@ const defaults = () => ({
   day: { date: today(), newCount: 0, reviews: 0 },
   streak: { last: null, count: 0 },
   // Stage-by-stage progression (see path.js).
-  path: { stage: 0, hist: {}, passed: {}, unitIntro: {}, testTried: {}, miss: {} },
+  path: { stage: 0, hist: {}, passed: {}, unitIntro: {}, testTried: {}, miss: {}, level: {} },
   lastBackup: null,     // date of the last export
 });
 
@@ -32,6 +32,11 @@ function migrate(s) {
   if (v < 2 && s.path?.stage >= 2) {
     s.path.stage++;
     s.path.passed = { ...s.path.passed, changes: today() };
+  }
+  // v3 inserted "Hear tones in phrases" as stage 4, the same way.
+  if (v < 3 && s.path?.stage >= 3) {
+    s.path.stage++;
+    s.path.passed = { ...s.path.passed, phrases: today() };
   }
   s.version = VERSION;
   return s;

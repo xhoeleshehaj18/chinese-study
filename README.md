@@ -3,16 +3,17 @@
 A speaking-first Mandarin study app for beginners. Static site — no build step, no login. Runs on GitHub Pages.
 
 ## Method
-One thing at a time. The course is a path of 17 stages, and each one unlocks only when you've mastered the one before it.
+One thing at a time. The course is a path of 18 stages, and each one unlocks only when you've mastered the one before it.
 
 | # | Stage | Pass mark |
 |---|-------|-----------|
 | 1 | 👂 Hear the four tones (single syllables) | 49 of your last 50 (98%) |
 | 2 | 👂 Hear tone pairs (two-syllable words) | 49 of your last 50 |
 | 3 | 👂 Hear tone changes (neutral tone, 3–3 → 2–3, 不 and 一) | 49 of your last 50 |
-| 4 | 👂 Hear tricky sounds (zh/j/z, ch/q/c, sh/x/s, u/ü, n/ng, r/l, aspiration) | 49 of your last 50 |
-| 5 | 🗣 Say the four tones (graded from your voice's pitch) | 45 of your last 50 (90%, because pitch tracking isn't precise enough for 98%) |
-| 6–17 | Phrase units | A unit test on a later day: every phrase both ways, 98% of questions right (a perfect score for units under 50 questions), one try per day |
+| 4 | 👂 Hear tones in phrases (fill in the missing tones of a natural phrase, in 4 levels) | 49 of your last 50 on each level |
+| 5 | 👂 Hear tricky sounds (zh/j/z, ch/q/c, sh/x/s, u/ü, n/ng, r/l, aspiration) | 49 of your last 50 |
+| 6 | 🗣 Say the four tones (graded from your voice's pitch) | 45 of your last 50 (90%, because pitch tracking isn't precise enough for 98%) |
+| 7–18 | Phrase units | A unit test on a later day: every phrase both ways, 98% of questions right (a perfect score for units under 50 questions), one try per day |
 
 Inside a phrase unit:
 - **Spaced repetition (FSRS)** brings each phrase back right before you'd forget it. Earlier units stay in review.
@@ -20,6 +21,8 @@ Inside a phrase unit:
 - New phrases come in pairs: meet them, then get quizzed straight away. Missed cards come back when they're actually due, with a countdown if you're waiting.
 - **Shadowing** of example sentences opens on the Path tab once you know a few phrases.
 - Pinyin comes first, with tone colours (1 red · 2 orange · 3 green · 4 blue). Simplified characters are shown alongside and can be hidden.
+
+**Hear tones in phrases** plays a word or example sentence from the phrase units and shows its pinyin with some tones left out. Level 1 leaves out one tone in a 2–4 syllable phrase, level 2 two tones, level 3 three tones in phrases of 5+ syllables, and level 4 every tone. Each tone counts as one answer; at 49 of the last 50 you move up a level and the count starts again. The answer is the tone as spoken (你好 is ní hǎo). In a run of three or more 3rd tones, which ones become 2nd tones depends on phrasing, so those syllables are shown with a dotted underline and never asked (the last one, which always stays 3rd, is).
 
 Drills lean towards what you get wrong: a tone, word or sound you miss comes up more often until you get it right again.
 
@@ -31,7 +34,8 @@ You can skip a stage on the **Me** tab if you already know it.
 - `js/content.js`: phrase units, tone syllables, tone-pair words and sound contrasts. Add units here, then regenerate the audio (below).
 - `audio/`: a natural-voice clip (Microsoft's neural voice Xiaoxiao, via [edge-tts](https://github.com/rany2/edge-tts)) for every word and sentence the app says, named by a hash of the text, plus `manifest.json`. Anything without a clip falls back to the browser's own text-to-speech, which sounds more robotic.
 - `tools/make_audio.py`: makes the clips. After editing `content.js`, run `python3 tools/make_audio.py` (needs `pip install edge-tts` and ffmpeg). It only makes new clips and deletes ones no longer used.
-- `js/path.js`: stage list, pass marks and unlocking.
+- `js/path.js`: stage list, pass marks, levels and unlocking.
+- `js/phrase-tones.js`: the phrases and levels for "Hear tones in phrases", built from `content.js`, with spoken tones worked out by `pitch-view.js`.
 - `js/store.js`: progress in `localStorage` and FSRS scheduling ([ts-fsrs](https://github.com/open-spaced-repetition/ts-fsrs), MIT, vendored in `vendor/`).
 - `js/speech.js`: text-to-speech, speech recognition, recording, pitch detection.
 - `js/tone-grade.js`: classifies a pitch contour as tone 1–4.
