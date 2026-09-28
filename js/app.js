@@ -17,7 +17,7 @@ import {
 } from './speech.js';
 import { classifyTone, checkPair } from './tone-grade.js';
 import { colorPinyin, syllables } from './pinyin.js';
-import { drawCompare, toneChanges } from './pitch-view.js';
+import { drawCompare, toneChanges, modelContour } from './pitch-view.js';
 import { update, startUpdateChecks, checkForUpdate, downloadUpdate } from './update.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -338,6 +338,15 @@ function renderCourseDone(box) {
 
 // ---------------------------------------------------------------- stage intros
 
+// How to draw each tone on the pad, for the stage intros.
+const drawGuide = light => `<ul>
+  <li><span class="t1">1</span>: level, along the top</li>
+  <li><span class="t2">2</span>: rising</li>
+  <li><span class="t3">3</span>: anything low: a low dip, a low fall or a low line</li>
+  <li><span class="t4">4</span>: falling from the top</li>
+  ${light ? '<li><span class="t5">Light (neutral) tone</span>: just tap</li>' : ''}
+</ul>`;
+
 function stageIntro(stage, box) {
   if (stage.kind === 'unit') {
     const us = unitStatus(stage);
@@ -356,7 +365,9 @@ function stageIntro(stage, box) {
       <div class="tone-guide">${TONE_INFO.map(t => `<button class="tone-card" data-t="${t.n}">${toneShapeSvg(t.n)}<b class="t${t.n}"></b><span>${t.shape}</span></button>`).join('')}</div>
       <div class="row"><button class="btn small another">Another syllable</button></div>
       <p class="muted small tip-line">Tap a tone to hear it.</p>
-      <p>You'll hear one syllable and pick its tone. Most people mix up 2 and 3 at first: 2 rises steadily, 3 dips low.</p>${pass}`;
+      <p>You'll hear one syllable and <b>draw its tone</b> on the pad, roughly: it snaps to the nearest tone. Height counts, not just direction:</p>
+      ${drawGuide(false)}
+      <p>Most people mix up 2 and 3 at first: 2 rises steadily, 3 dips low. Get one wrong and you'll see the right tone drawn in and hear it again.</p>${pass}`;
     let set = TONE_SETS[0];
     const label = () => box.querySelectorAll('.tone-card b').forEach((b, i) => (b.textContent = set.py[i]));
     label();
@@ -368,12 +379,14 @@ function stageIntro(stage, box) {
     $('.another', box).onclick = () => { set = TONE_SETS[(TONE_SETS.indexOf(set) + 1) % TONE_SETS.length]; label(); };
   } else if (stage.id === 'pairs') {
     box.innerHTML = `
-      <p>In real speech, tones come in combinations, and neighbouring tones change each other. You'll hear a two-syllable word and pick its tone pair.</p>
-      <p>Tip: a 3rd tone before another tone stays low and doesn't rise at the end (a "half-third").</p>
+      <p>In real speech, tones come in combinations, and neighbouring tones change each other. You'll hear a two-syllable word and <b>draw its two tones</b> on the pad, one after the other:</p>
+      ${drawGuide(false)}
+      <p>Tip: a 3rd tone before another tone stays low and doesn't rise at the end (a "half-third"). A low line or a low fall is right for it.</p>
+      <p>The word counts as right when both tones are.</p>
       <p class="muted">Two 3rd tones in a row are said 2–3. That's the next stage.</p>${pass}`;
   } else if (stage.id === 'changes') {
     box.innerHTML = `
-      <p>Pinyin shows each syllable's dictionary tone, but in real speech some tones change. You'll hear a word and pick the tones you <i>actually hear</i>. The four changes you'll meet constantly:</p>
+      <p>Pinyin shows each syllable's dictionary tone, but in real speech some tones change. You'll hear a word and draw the tones you <i>actually hear</i>, the same way as before (tap for a neutral tone). The four changes you'll meet constantly:</p>
       <ul>
         <li><b>Neutral tone (•):</b> the second syllable is short and light, e.g. <span class="t4">xiè</span><span class="t5">xie</span> 谢谢. Its pitch depends on the tone before it.</li>
         <li><b>3 + 3 → 2 + 3:</b> <span class="t3">nǐ</span> <span class="t3">hǎo</span> is said <span class="t2">ní</span> <span class="t3">hǎo</span>.</li>
@@ -501,96 +514,152 @@ const TONE_SAID = {
   '3dip': '3rd tone, low then back up', 4: '4th tone, falling from the top', 5: 'light tone, short and unstressed',
 };
 
+// Draw the tones of `syl` (from modelContour) at the indices in `blanks` on a pad, one at a time,
+// left to right. Each is checked as soon as it's drawn: a right one moves on, a wrong one turns
+// red, draws the right contour over yours and replays `zh`. Syllables that aren't asked are shown
+// by other(s, cls, done). With light: false there are no light tones to draw, so a tap asks for
+// the tone's shape instead. After the last one, finish(picked, { feedback, after }) is called,
+// picked[i] being the tone drawn for syllable i.
+function drawTones(box, { zh, syl, blanks = syl.map((_, i) => i), question, below = '', other, light = true, slow = true, finish }) {
+  const picked = {};
+  let step = 0; // which of the blanks you're drawing
+  let done = false;
+
+  const chip = (s, i) => {
+    const cls = `syl${s.pauseBefore && i ? ' pause' : ''}`;
+    if (!blanks.includes(i)) return other(s, cls, done);
+    if (picked[i]) {
+      const ok = picked[i] === s.tone;
+      const mine = withTone(toneless(s.text), picked[i]);
+      return `<span class="${cls} blank ${ok ? 'right' : 'wrong'}"><span class="t${s.tone}">${esc(s.said)}</span>${ok ? '' : `<s class="t${picked[i]}">${esc(mine)}</s>`}</span>`;
+    }
+    return `<span class="${cls} blank${i === blanks[step] ? ' active' : ''}"><span class="gap">${esc(toneless(s.text))}</span></span>`;
+  };
+  const HINT = light ? 'Draw it roughly · tap for a light tone' : 'Draw it roughly';
+  box.innerHTML = `
+    <div class="drill-q">${question}</div>
+    <div class="audio-row"><button class="btn round replay">🔊</button>${slow ? '<button class="btn round slow">🐢</button>' : ''}</div>
+    <div class="syl-row draw-row"></div>
+    ${below}
+    <div class="tone-pad"></div>
+    <div class="pad-hint muted small center">${HINT}</div>
+    <div class="feedback"></div>
+    <div class="after"></div>`;
+  const row = $('.syl-row', box);
+  const hint = $('.pad-hint', box);
+  const after = $('.after', box);
+  const draw = () => (row.innerHTML = syl.map(chip).join(''));
+  let hintTimer;
+  const say = (text, cls = '') => {
+    clearTimeout(hintTimer);
+    hint.textContent = text;
+    hint.className = `pad-hint small center ${cls || 'muted'}`;
+  };
+  const end = () => {
+    done = true;
+    draw();
+    finish(picked, { feedback: $('.feedback', box), after });
+  };
+  const advance = () => {
+    step++;
+    if (step >= blanks.length) return end();
+    pad.busy = false;
+    pad.clear();
+    say(HINT);
+    draw();
+  };
+
+  const pad = createTonePad($('.tone-pad', box), {
+    onStroke: async result => {
+      if (result.retry || (!light && result.tone === 5)) {
+        pad.reject();
+        say(result.tone === 5 ? 'No light tones here. Draw the tone\'s shape.'
+          : result.retry === 'small' ? 'Too small to read. Draw it bigger.' : 'That isn\'t a tone shape. Draw it again.');
+        hintTimer = setTimeout(() => say(HINT), 2500);
+        return;
+      }
+      pad.busy = true;
+      const i = blanks[step];
+      const s = syl[i];
+      picked[i] = result.tone;
+      await pad.snap(result);
+      draw();
+      if (picked[i] === s.tone) {
+        say(`${s.said} ✓`, `t${s.tone}`);
+        return setTimeout(advance, 450);
+      }
+      say(`It's ${s.said}: ${TONE_SAID[s.tone === 3 && s.pts.length > 2 ? '3dip' : s.tone]}`, `t${s.tone}`);
+      pad.answer(s.pts, s.tone);
+      speak(zh);
+      if (step === blanks.length - 1) return end();
+      after.replaceChildren(nextButton(() => { after.replaceChildren(); advance(); }, 'Continue →'));
+    },
+  });
+  $('.replay', box).onclick = () => speak(zh);
+  if (slow) $('.slow', box).onclick = () => speak(zh, { slow: true });
+  draw();
+  speak(zh);
+}
+
 const DRILLS = {
   tones(box, { answer, next, stage }) {
     const set = pick(TONE_SETS);
     const t = weightedPick(stage, [1, 2, 3, 4], n => n);
-    box.innerHTML = `
-      <div class="drill-q">Which tone do you hear?</div>
-      <div class="audio-row"><button class="btn round replay">🔊</button></div>
-      <div class="choices four">${[1, 2, 3, 4].map(n => `<button class="choice" data-n="${n}">${toneShapeSvg(n, 48, 32)}<span>${n}</span></button>`).join('')}</div>
-      <div class="feedback"></div>`;
-    $('.replay', box).onclick = () => speak(set.zh[t - 1]);
-    speak(set.zh[t - 1]);
-    box.querySelectorAll('.choice').forEach(b => (b.onclick = () => {
-      const n = +b.dataset.n;
-      box.querySelectorAll('.choice').forEach(c => (c.disabled = true));
-      box.querySelector(`.choice[data-n="${t}"]`).classList.add('right');
-      const fb = $('.feedback', box);
-      fb.innerHTML = `<span class="py-big t${t}">${set.py[t - 1]}</span> <span class="zh">${set.zh[t - 1]}</span>`;
-      answer(n === t, t);
-      if (n === t) return setTimeout(next, 900);
-      b.classList.add('wrong');
-      const cmp = h('<button class="btn small">🔊 Compare</button>');
-      cmp.onclick = async () => { await speak(set.zh[n - 1]); speak(set.zh[t - 1]); };
-      fb.append(h(`<div class="muted small">You chose ${n} (${set.py[n - 1]}). Compare plays yours, then the right one.</div>`), h('<div class="row"></div>'));
-      fb.lastChild.append(cmp);
-      box.append(nextButton(next));
-    }));
+    drawTones(box, {
+      zh: set.zh[t - 1],
+      syl: modelContour(set.py[t - 1]),
+      question: 'Draw the tone you hear',
+      light: false,
+      slow: false,
+      finish: (picked, { feedback, after }) => {
+        const n = picked[0];
+        feedback.innerHTML = `<span class="py-big t${t}">${set.py[t - 1]}</span> <span class="zh">${set.zh[t - 1]}</span>`;
+        answer(n === t, t);
+        if (n === t) return setTimeout(next, 900);
+        const cmp = h('<button class="btn small">🔊 Compare</button>');
+        cmp.onclick = async () => { await speak(set.zh[n - 1]); speak(set.zh[t - 1]); };
+        feedback.append(h(`<div class="muted small">You drew ${n} (${set.py[n - 1]}). Compare plays yours, then the right one.</div>`), h('<div class="row"></div>'));
+        feedback.lastChild.append(cmp);
+        after.replaceChildren(nextButton(next));
+      },
+    });
   },
 
   pairs(box, { answer, next, stage }) {
-    const tonesOf = w => syllables(w.py).map(s => s.tone).join('-');
-    const combos = [...new Set(PAIR_WORDS.map(tonesOf))];
     const word = weightedPick(stage, PAIR_WORDS, w => w.zh);
-    const right = tonesOf(word);
-    const opts = shuffle([right, ...shuffle(combos.filter(c => c !== right)).slice(0, 3)]);
-    const fmt = c => c.split('-').map(n => `<span class="t${n}">${n}</span>`).join(' – ');
-    box.innerHTML = `
-      <div class="drill-q">Which tone pair do you hear?</div>
-      <div class="audio-row"><button class="btn round replay">🔊</button><button class="btn round slow">🐢</button></div>
-      <div class="choices">${opts.map(o => `<button class="choice pair" data-c="${o}">${fmt(o)}</button>`).join('')}</div>
-      <div class="feedback"></div>`;
-    $('.replay', box).onclick = () => speak(word.zh);
-    $('.slow', box).onclick = () => speak(word.zh, { slow: true });
-    speak(word.zh);
-    box.querySelectorAll('.choice').forEach(b => (b.onclick = () => {
-      box.querySelectorAll('.choice').forEach(c => (c.disabled = true));
-      box.querySelector(`.choice[data-c="${right}"]`).classList.add('right');
-      $('.feedback', box).innerHTML = `<div class="py-big">${colorPinyin(word.py)}</div><div><span class="zh">${esc(word.zh)}</span> · ${esc(word.en)}</div>`;
-      const ok = b.dataset.c === right;
-      answer(ok, word.zh);
-      if (ok) return setTimeout(next, 1300);
-      b.classList.add('wrong');
-      box.append(nextButton(next));
-    }));
+    const syl = modelContour(word.py);
+    drawTones(box, {
+      zh: word.zh,
+      syl,
+      question: 'Draw the two tones you hear',
+      light: false,
+      finish: (picked, { feedback, after }) => {
+        feedback.innerHTML = `<div class="center"><span class="zh">${esc(word.zh)}</span> · ${esc(word.en)}</div>`;
+        const ok = syl.every((s, i) => picked[i] === s.tone);
+        answer(ok, word.zh);
+        if (ok) return setTimeout(next, 1300);
+        after.replaceChildren(nextButton(next));
+      },
+    });
   },
 
   // Hear the tones as they're actually said: neutral tones, 3–3 → 2–3, and the 不 / 一 changes.
   changes(box, { answer, next, stage }) {
-    const tonesOf = py => syllables(py).map(s => s.tone).join('-');
     const word = weightedPick(stage, CHANGE_WORDS, w => w.zh);
-    const right = tonesOf(word.said);
-    const written = tonesOf(word.py);
-    const [first, second] = right.split('-');
-    // Distractors that test the change itself: the dictionary tones, and the other options
-    // for the syllable that changes.
-    const near = second === '5' ? [1, 2, 3, 4].map(n => `${first}-${n}`) : [1, 2, 3, 4].map(n => `${n}-${second}`);
-    const pool = [...new Set([written, ...shuffle(near)])].filter(c => c !== right);
-    const opts = shuffle([right, ...pool.slice(0, 3)]);
-    const fmt = c => c.split('-').map(n => (n === '5' ? '<span class="t5">•</span>' : `<span class="t${n}">${n}</span>`)).join(' – ');
-    box.innerHTML = `
-      <div class="drill-q">Which tones do you actually hear?</div>
-      <div class="audio-row"><button class="btn round replay">🔊</button><button class="btn round slow">🐢</button></div>
-      <div class="choices">${opts.map(o => `<button class="choice pair" data-c="${o}">${fmt(o)}</button>`).join('')}</div>
-      <div class="muted small center">• = neutral tone (short and light)</div>
-      <div class="feedback"></div>`;
-    $('.replay', box).onclick = () => speak(word.zh);
-    $('.slow', box).onclick = () => speak(word.zh, { slow: true });
-    speak(word.zh);
-    box.querySelectorAll('.choice').forEach(b => (b.onclick = () => {
-      box.querySelectorAll('.choice').forEach(c => (c.disabled = true));
-      box.querySelector(`.choice[data-c="${right}"]`).classList.add('right');
-      const changed = word.said !== word.py;
-      $('.feedback', box).innerHTML = `<div class="py-big">${colorPinyin(word.said)}</div>
-        <div><span class="zh">${esc(word.zh)}</span> · ${esc(word.en)}</div>
-        ${changed ? `<div class="muted small">Written <b>${colorPinyin(word.py)}</b>, said <b>${colorPinyin(word.said)}</b>.</div>` : ''}`;
-      const ok = b.dataset.c === right;
-      answer(ok, word.zh);
-      if (ok) return setTimeout(next, 1500);
-      b.classList.add('wrong');
-      box.append(nextButton(next));
-    }));
+    const syl = modelContour(word.said);
+    drawTones(box, {
+      zh: word.zh,
+      syl,
+      question: 'Draw the tones you actually hear',
+      finish: (picked, { feedback, after }) => {
+        feedback.innerHTML = `<div class="center"><span class="zh">${esc(word.zh)}</span> · ${esc(word.en)}</div>
+          ${word.said !== word.py ? `<div class="muted small center">Written <b>${colorPinyin(word.py)}</b>, said <b>${colorPinyin(word.said)}</b>.</div>` : ''}`;
+        const ok = syl.every((s, i) => picked[i] === s.tone);
+        answer(ok, word.zh);
+        if (ok) return setTimeout(next, 1500);
+        after.replaceChildren(nextButton(next));
+      },
+    });
   },
 
   // A natural phrase with some tones left out: more of them, in longer phrases, level by level.
@@ -604,94 +673,25 @@ const DRILLS = {
     const { syl } = phrase;
     const askable = syl.map((_, i) => i).filter(i => syl[i].ask);
     const blanks = weightedSample(askable, i => weight(syl[i]), level.blanks).sort((a, b) => a - b);
-    const picked = {};
-    let step = 0; // which of the blanks you're drawing
-    let done = false;
-
-    const chip = (s, i) => {
-      const cls = `syl${s.pauseBefore && i ? ' pause' : ''}`;
-      if (!blanks.includes(i)) {
-        if (!s.ask) return `<span class="${cls} fixed">${esc(done ? s.text : toneless(s.text))}</span>`;
-        return `<span class="${cls}"><span class="t${s.tone}">${esc(s.said)}</span></span>`;
-      }
-      if (picked[i]) {
-        const ok = picked[i] === s.tone;
-        const mine = withTone(toneless(s.text), picked[i]);
-        return `<span class="${cls} blank ${ok ? 'right' : 'wrong'}"><span class="t${s.tone}">${esc(s.said)}</span>${ok ? '' : `<s class="t${picked[i]}">${esc(mine)}</s>`}</span>`;
-      }
-      return `<span class="${cls} blank${i === blanks[step] ? ' active' : ''}"><span class="gap">${esc(toneless(s.text))}</span></span>`;
-    };
-    const many = blanks.length > 1;
-    box.innerHTML = `
-      <div class="drill-q">${many ? 'Draw each tone you hear' : 'Draw the tone you hear'}</div>
-      <div class="audio-row"><button class="btn round replay">🔊</button><button class="btn round slow">🐢</button></div>
-      <div class="syl-row draw-row"></div>
-      ${syl.some(s => !s.ask) ? '<div class="muted small center">Dotted: a run of 3rd tones, not asked.</div>' : ''}
-      <div class="tone-pad"></div>
-      <div class="pad-hint muted small center">Draw it roughly · tap for a light tone</div>
-      <div class="feedback"></div>
-      <div class="after"></div>`;
-    const row = $('.syl-row', box);
-    const hint = $('.pad-hint', box);
-    const after = $('.after', box);
-    const draw = () => (row.innerHTML = syl.map(chip).join(''));
-    const HINT = hint.textContent;
-    let hintTimer;
-    const say = (text, cls = '') => {
-      clearTimeout(hintTimer);
-      hint.textContent = text;
-      hint.className = `pad-hint small center ${cls || 'muted'}`;
-    };
-
-    const finish = () => {
-      done = true;
-      draw();
-      const parts = blanks.map(i => ({ correct: picked[i] === syl[i].tone, key: syl[i].tone }));
-      const changed = blanks.map(i => syl[i]).filter(s => s.said !== s.text);
-      $('.feedback', box).innerHTML = `<div class="center"><span class="zh">${esc(phrase.zh)}</span> · ${esc(phrase.en)}</div>
-        ${changed.length ? `<div class="muted small center">${changed.map(s => `${esc(s.text)} → ${colorPinyin(s.said)}`).join(', ')}: a 3rd tone before another 3rd tone is said as a 2nd tone.</div>` : ''}`;
-      answer(parts);
-      if (parts.every(p => p.correct)) return setTimeout(next, 1500);
-      after.replaceChildren(nextButton(next));
-    };
-    const advance = () => {
-      step++;
-      if (step >= blanks.length) return finish();
-      pad.busy = false;
-      pad.clear();
-      say(HINT);
-      draw();
-    };
-
-    const pad = createTonePad($('.tone-pad', box), {
-      onStroke: async result => {
-        if (result.retry) {
-          pad.reject();
-          say(result.retry === 'small' ? 'Too small to read. Draw it bigger.' : 'That isn\'t a tone shape. Draw it again.');
-          hintTimer = setTimeout(() => say(HINT), 2500);
-          return;
-        }
-        pad.busy = true;
-        const i = blanks[step];
-        const s = syl[i];
-        picked[i] = result.tone;
-        await pad.snap(result);
-        draw();
-        if (picked[i] === s.tone) {
-          say(`${s.said} ✓`, `t${s.tone}`);
-          return setTimeout(advance, 450);
-        }
-        say(`It's ${s.said}: ${TONE_SAID[s.tone === 3 && s.pts.length > 2 ? '3dip' : s.tone]}`, `t${s.tone}`);
-        pad.answer(s.pts, s.tone);
-        speak(phrase.zh);
-        if (step === blanks.length - 1) return finish();
-        after.replaceChildren(nextButton(() => { after.replaceChildren(); advance(); }, 'Continue →'));
+    drawTones(box, {
+      zh: phrase.zh,
+      syl,
+      blanks,
+      question: blanks.length > 1 ? 'Draw each tone you hear' : 'Draw the tone you hear',
+      below: syl.some(s => !s.ask) ? '<div class="muted small center">Dotted: a run of 3rd tones, not asked.</div>' : '',
+      other: (s, cls, done) => (s.ask
+        ? `<span class="${cls}"><span class="t${s.tone}">${esc(s.said)}</span></span>`
+        : `<span class="${cls} fixed">${esc(done ? s.text : toneless(s.text))}</span>`),
+      finish: (picked, { feedback, after }) => {
+        const parts = blanks.map(i => ({ correct: picked[i] === syl[i].tone, key: syl[i].tone }));
+        const changed = blanks.map(i => syl[i]).filter(s => s.said !== s.text);
+        feedback.innerHTML = `<div class="center"><span class="zh">${esc(phrase.zh)}</span> · ${esc(phrase.en)}</div>
+          ${changed.length ? `<div class="muted small center">${changed.map(s => `${esc(s.text)} → ${colorPinyin(s.said)}`).join(', ')}: a 3rd tone before another 3rd tone is said as a 2nd tone.</div>` : ''}`;
+        answer(parts);
+        if (parts.every(p => p.correct)) return setTimeout(next, 1500);
+        after.replaceChildren(nextButton(next));
       },
     });
-    $('.replay', box).onclick = () => speak(phrase.zh);
-    $('.slow', box).onclick = () => speak(phrase.zh, { slow: true });
-    draw();
-    speak(phrase.zh);
   },
 
   sounds(box, { answer, next, stage }) {

@@ -144,6 +144,8 @@ export function createTonePad(root, { onStroke }) {
   // What's on the pad, in pad units: x 0–1 across the drawing area, h 0–1 from bottom to top guide line.
   const scene = { live: null, mine: null, answer: null };
   let raf = 0;
+  let guard = 0;
+  const stop = () => { cancelAnimationFrame(raf); clearTimeout(guard); };
   const api = { busy: false };
 
   const inner = () => ({ w: W - PAD.left - PAD.right, h: H - PAD.top - PAD.bottom });
@@ -208,16 +210,27 @@ export function createTonePad(root, { onStroke }) {
   }
 
   function animate(ms, step, done) {
-    cancelAnimationFrame(raf);
+    stop();
     const start = performance.now();
+    let over = false;
+    const end = () => {
+      if (over) return;
+      over = true;
+      stop();
+      step(ease(1));
+      render();
+      done?.();
+    };
     const frame = now => {
-      const t = Math.min(1, (now - start) / ms);
+      const t = (now - start) / ms;
+      if (t >= 1) return end();
       step(ease(t));
       render();
-      if (t < 1) raf = requestAnimationFrame(frame);
-      else done?.();
+      raf = requestAnimationFrame(frame);
     };
     raf = requestAnimationFrame(frame);
+    // Frames stop while the page is hidden, so don't leave the drill waiting on them.
+    guard = setTimeout(end, ms + 100);
   }
 
   // Resampled so a stroke and a shape can morph into each other point by point.
@@ -254,6 +267,7 @@ export function createTonePad(root, { onStroke }) {
     e.preventDefault();
     id = e.pointerId;
     pts = [local(e)];
+    stop(); // a rejected stroke may still be fading
     try { canvas.setPointerCapture(id); } catch { /* the window listeners below cover it */ }
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', end);
@@ -296,7 +310,7 @@ export function createTonePad(root, { onStroke }) {
   };
 
   api.clear = () => {
-    cancelAnimationFrame(raf);
+    stop();
     scene.live = scene.mine = scene.answer = null;
     render();
   };

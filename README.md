@@ -7,9 +7,9 @@ One thing at a time. The course is a path of 20 stages, and each one unlocks onl
 
 | # | Stage | Pass mark |
 |---|-------|-----------|
-| 1 | 👂 Hear the four tones (single syllables) | 49 of your last 50 (98%) |
-| 2 | 👂 Hear tone pairs (two-syllable words) | 49 of your last 50 |
-| 3 | 👂 Hear tone changes (neutral tone, 3–3 → 2–3, 不 and 一) | 49 of your last 50 |
+| 1 | 👂 Hear the four tones (draw the tone of a single syllable) | 49 of your last 50 (98%) |
+| 2 | 👂 Hear tone pairs (draw both tones of a two-syllable word) | 49 of your last 50 |
+| 3 | 👂 Hear tone changes (draw the tones as said: neutral tone, 3–3 → 2–3, 不 and 一) | 49 of your last 50 |
 | 4 | 👂 Hear tones in phrases (draw the missing tones of a natural phrase, in 4 levels) | 49 of your last 50 on each level |
 | 5 | 👂 Hear tricky sounds (zh/j/z, ch/q/c, sh/x/s, u/ü, n/ng, r/l, aspiration) | 49 of your last 50 |
 | 6 | 🗣 Say the four tones (graded from your voice's pitch) | 45 of your last 50 (90%, because pitch tracking isn't precise enough for 98%) |
@@ -24,6 +24,8 @@ Inside a phrase unit:
 - New phrases come in pairs: meet them, then get quizzed straight away. Missed cards come back when they're actually due, with a countdown if you're waiting.
 - **Shadowing** of example sentences opens on the Path tab once you know a few phrases.
 - Pinyin comes first, with tone colours (1 red · 2 orange · 3 green · 4 blue). Simplified characters are shown alongside and can be hidden.
+
+**Drawing tones.** All four hearing stages have you draw the tones you hear rather than pick numbers: stage 1 one tone, stage 2 both tones of a word, stage 3 the tones as actually said (tap for a neutral tone), and stage 4 the missing tones of a phrase. In stages 1 and 2 there are no light tones, so a tap asks for the tone's shape and isn't counted. A wrong single tone also offers 🔊 Compare, which plays the syllable you drew and then the right one. In stages 2 and 3 a word counts as right when all its tones are.
 
 **Hear tones in phrases** plays a word or example sentence from the phrase units and shows its pinyin with some tones left out. You draw each missing tone in turn on a pad with high, mid and low guide lines, and your stroke snaps to the tone it matches. Height counts: a fall from the top is a 4th tone, and anything that stays low (a low dip, a low fall, a low level line) is a 3rd tone, so the half-3rd said before another tone counts. A tap is a light (neutral) tone. A stroke that isn't a tone shape (too small, a hump, a zigzag) asks you to draw again and isn't counted. A right tone turns its box green and moves on; a wrong one turns it red, draws the right contour over yours and replays the phrase. Level 1 leaves out one tone in a 2–4 syllable phrase, level 2 two tones, level 3 three tones in phrases of 5+ syllables, and level 4 every tone. Each tone counts as one answer; at 49 of the last 50 you move up a level and the count starts again. The answer is the tone as spoken (你好 is ní hǎo). In a run of three or more 3rd tones, which ones become 2nd tones depends on phrasing, so those syllables are shown with a dotted underline and never asked (the last one, which always stays 3rd, is).
 
