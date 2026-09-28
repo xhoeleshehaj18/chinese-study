@@ -9,6 +9,7 @@ import {
   passStage, recordAnswers, undoLastAnswer, unitStatus, weightedPick, missWeight, levelOf, LISTENING,
 } from './path.js';
 import { PHRASE_LEVELS, phrasesFor, weightedSample, toneless, withTone } from './phrase-tones.js';
+import { createTonePad } from './tone-pad.js';
 import { NUMBER_SETS, NUMBER_LEVELS } from './numbers.js';
 import {
   initTTS, hasChineseVoice, setRate, speak, stopSpeaking, canRecognize, recognize, matchScore,
@@ -382,7 +383,15 @@ function stageIntro(stage, box) {
   } else if (stage.id === 'phrases') {
     box.innerHTML = `
       <p>Now the tones inside real phrases, at natural speed. In a sentence, tones are shorter and run into each other, and the whole sentence has its own melody, so they're harder to catch than in single words.</p>
-      <p>You'll hear a phrase and see its pinyin with some tones left out. Tap a gap, then the tone you hear (• = neutral tone). Pick the tone that's actually <i>said</i>: 你好 is ${colorPinyin('ní hǎo')}.</p>
+      <p>You'll hear a phrase and see its pinyin with some tones left out. For each gap, left to right, <b>draw the tone you hear</b> on the pad, roughly: it snaps to the nearest tone. Height counts, not just direction:</p>
+      <ul>
+        <li><span class="t1">1</span>: level, along the top</li>
+        <li><span class="t2">2</span>: rising</li>
+        <li><span class="t3">3</span>: anything low. In a phrase a 3rd tone usually just stays low (a low dip or a low fall); it only comes back up before a pause</li>
+        <li><span class="t4">4</span>: falling from the top</li>
+        <li><span class="t5">Light (neutral) tone</span>: just tap</li>
+      </ul>
+      <p>Get one wrong and you'll see the right tone drawn in and hear the phrase again. Draw the tone that's actually <i>said</i>: 你好 is ${colorPinyin('ní hǎo')}.</p>
       <p><b>${stage.levels.length} levels</b>, one after the other:</p>
       <ol>${stage.levels.map(l => `<li>${esc(l)}</li>`).join('')}</ol>
       <p><b>To move up:</b> each tone you fill in counts as one answer. At ${stage.need} right out of your last ${stage.window} you go up a level, and the count starts again. Reach it on level ${stage.levels.length} to pass.</p>
@@ -486,6 +495,11 @@ function nextButton(next, label = 'Next →') {
 }
 
 let lastPhrase = null; // so the same phrase doesn't come up twice in a row
+// How each tone sounds in a phrase, shown when you drew the wrong one.
+const TONE_SAID = {
+  1: '1st tone, high and level', 2: '2nd tone, rising', 3: '3rd tone, staying low',
+  '3dip': '3rd tone, low then back up', 4: '4th tone, falling from the top', 5: 'light tone, short and unstressed',
+};
 
 const DRILLS = {
   tones(box, { answer, next, stage }) {
@@ -580,6 +594,7 @@ const DRILLS = {
   },
 
   // A natural phrase with some tones left out: more of them, in longer phrases, level by level.
+  // You draw each missing tone in turn on a pad, and it's checked straight away.
   phrases(box, { answer, next, stage, level: lv = levelOf(stage) }) {
     const level = PHRASE_LEVELS[lv - 1];
     const weight = s => missWeight(stage, s.tone);
@@ -590,61 +605,89 @@ const DRILLS = {
     const askable = syl.map((_, i) => i).filter(i => syl[i].ask);
     const blanks = weightedSample(askable, i => weight(syl[i]), level.blanks).sort((a, b) => a - b);
     const picked = {};
-    let active = blanks[0];
-    let checked = false;
+    let step = 0; // which of the blanks you're drawing
+    let done = false;
 
     const chip = (s, i) => {
       const cls = `syl${s.pauseBefore && i ? ' pause' : ''}`;
       if (!blanks.includes(i)) {
-        if (!s.ask) return `<span class="${cls} fixed">${esc(checked ? s.text : toneless(s.text))}</span>`;
+        if (!s.ask) return `<span class="${cls} fixed">${esc(done ? s.text : toneless(s.text))}</span>`;
         return `<span class="${cls}"><span class="t${s.tone}">${esc(s.said)}</span></span>`;
       }
-      const mine = picked[i] && withTone(toneless(s.text), picked[i]);
-      if (checked) {
+      if (picked[i]) {
         const ok = picked[i] === s.tone;
+        const mine = withTone(toneless(s.text), picked[i]);
         return `<span class="${cls} blank ${ok ? 'right' : 'wrong'}"><span class="t${s.tone}">${esc(s.said)}</span>${ok ? '' : `<s class="t${picked[i]}">${esc(mine)}</s>`}</span>`;
       }
-      return `<button class="${cls} blank${mine ? ' filled' : ''}${i === active ? ' active' : ''}" data-i="${i}">${mine ? `<span class="t${picked[i]}">${esc(mine)}</span>` : `<span class="gap">${esc(toneless(s.text))}</span>`}</button>`;
+      return `<span class="${cls} blank${i === blanks[step] ? ' active' : ''}"><span class="gap">${esc(toneless(s.text))}</span></span>`;
     };
     const many = blanks.length > 1;
     box.innerHTML = `
-      <div class="drill-q">${many ? 'Which tones do you hear?' : 'Which tone goes in the gap?'}</div>
+      <div class="drill-q">${many ? 'Draw each tone you hear' : 'Draw the tone you hear'}</div>
       <div class="audio-row"><button class="btn round replay">🔊</button><button class="btn round slow">🐢</button></div>
-      <div class="syl-row"></div>
+      <div class="syl-row draw-row"></div>
       ${syl.some(s => !s.ask) ? '<div class="muted small center">Dotted: a run of 3rd tones, not asked.</div>' : ''}
-      <div class="choices five">${[1, 2, 3, 4, 5].map(n => `<button class="choice" data-n="${n}">${n === 5 ? '<b class="t5 dot">•</b>' : toneShapeSvg(n, 40, 26)}<span>${n === 5 ? 'light' : n}</span></button>`).join('')}</div>
-      ${many ? '<button class="btn primary big check" disabled>Check</button>' : ''}
-      <div class="feedback"></div>`;
+      <div class="tone-pad"></div>
+      <div class="pad-hint muted small center">Draw it roughly · tap for a light tone</div>
+      <div class="feedback"></div>
+      <div class="after"></div>`;
     const row = $('.syl-row', box);
-    const pad = box.querySelectorAll('.choice');
-    const checkBtn = $('.check', box);
-    const draw = () => {
-      row.innerHTML = syl.map(chip).join('');
-      row.querySelectorAll('button.blank').forEach(b => (b.onclick = () => { active = +b.dataset.i; draw(); }));
-      if (checkBtn) checkBtn.disabled = blanks.some(i => !picked[i]);
+    const hint = $('.pad-hint', box);
+    const after = $('.after', box);
+    const draw = () => (row.innerHTML = syl.map(chip).join(''));
+    const HINT = hint.textContent;
+    let hintTimer;
+    const say = (text, cls = '') => {
+      clearTimeout(hintTimer);
+      hint.textContent = text;
+      hint.className = `pad-hint small center ${cls || 'muted'}`;
     };
-    const check = () => {
-      checked = true;
+
+    const finish = () => {
+      done = true;
       draw();
-      pad.forEach(c => (c.disabled = true));
-      checkBtn?.remove();
       const parts = blanks.map(i => ({ correct: picked[i] === syl[i].tone, key: syl[i].tone }));
       const changed = blanks.map(i => syl[i]).filter(s => s.said !== s.text);
       $('.feedback', box).innerHTML = `<div class="center"><span class="zh">${esc(phrase.zh)}</span> · ${esc(phrase.en)}</div>
         ${changed.length ? `<div class="muted small center">${changed.map(s => `${esc(s.text)} → ${colorPinyin(s.said)}`).join(', ')}: a 3rd tone before another 3rd tone is said as a 2nd tone.</div>` : ''}`;
       answer(parts);
-      if (!many && parts[0].correct) return setTimeout(next, 1500);
-      box.append(nextButton(next));
+      if (parts.every(p => p.correct)) return setTimeout(next, 1500);
+      after.replaceChildren(nextButton(next));
     };
-    pad.forEach(b => (b.onclick = () => {
-      picked[active] = +b.dataset.n;
-      if (!many) return check();
-      // On to the next gap that's still empty (wrapping round), or stay put once all are filled.
-      const after = [...blanks.filter(i => i > active), ...blanks.filter(i => i <= active)];
-      active = after.find(i => !picked[i]) ?? active;
+    const advance = () => {
+      step++;
+      if (step >= blanks.length) return finish();
+      pad.busy = false;
+      pad.clear();
+      say(HINT);
       draw();
-    }));
-    if (checkBtn) checkBtn.onclick = check;
+    };
+
+    const pad = createTonePad($('.tone-pad', box), {
+      onStroke: async result => {
+        if (result.retry) {
+          pad.reject();
+          say(result.retry === 'small' ? 'Too small to read. Draw it bigger.' : 'That isn\'t a tone shape. Draw it again.');
+          hintTimer = setTimeout(() => say(HINT), 2500);
+          return;
+        }
+        pad.busy = true;
+        const i = blanks[step];
+        const s = syl[i];
+        picked[i] = result.tone;
+        await pad.snap(result);
+        draw();
+        if (picked[i] === s.tone) {
+          say(`${s.said} ✓`, `t${s.tone}`);
+          return setTimeout(advance, 450);
+        }
+        say(`It's ${s.said}: ${TONE_SAID[s.tone === 3 && s.pts.length > 2 ? '3dip' : s.tone]}`, `t${s.tone}`);
+        pad.answer(s.pts, s.tone);
+        speak(phrase.zh);
+        if (step === blanks.length - 1) return finish();
+        after.replaceChildren(nextButton(() => { after.replaceChildren(); advance(); }, 'Continue →'));
+      },
+    });
     $('.replay', box).onclick = () => speak(phrase.zh);
     $('.slow', box).onclick = () => speak(phrase.zh, { slow: true });
     draw();

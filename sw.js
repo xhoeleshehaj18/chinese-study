@@ -1,7 +1,7 @@
 // Network-first service worker: always fetch the latest version when online,
 // fall back to the cached copy when offline.
 // Bump this when CORE changes (and keep FILES in js/update.js in step).
-const CACHE = 'shuo-zhongwen-v8';
+const CACHE = 'shuo-zhongwen-v9';
 // Voice clips are named by a hash of their text, so a cached clip never goes stale. They live in
 // their own cache that survives app updates; clips no longer in the manifest are pruned.
 const AUDIO = 'shuo-zhongwen-audio';
@@ -12,7 +12,7 @@ const CORE = [
   './', 'index.html', 'manifest.webmanifest', 'icon.svg', 'icon-180.png', 'icon-512.png',
   'css/style.css',
   'js/app.js', 'js/content.js', 'js/numbers.js', 'js/path.js', 'js/phrase-tones.js', 'js/pinyin.js', 'js/pitch-view.js',
-  'js/speech.js', 'js/store.js', 'js/tone-grade.js', 'js/update.js',
+  'js/speech.js', 'js/store.js', 'js/tone-grade.js', 'js/tone-pad.js', 'js/update.js',
   'vendor/ts-fsrs.mjs', 'audio/manifest.json',
 ];
 

@@ -180,13 +180,24 @@ h1 .muted, h2 .muted { font-size: 0.85rem; font-weight: 400; margin-left: 6px; }
 .syl { display: inline-flex; flex-direction: column; align-items: center; min-width: 2.2em; padding: 6px 4px; border: 2px solid transparent; border-radius: 10px; line-height: 1.2; }
 .syl.pause { margin-left: 14px; }
 .syl.fixed { color: var(--muted); font-weight: 500; text-decoration: underline dotted; text-underline-offset: 5px; }
-.syl.blank { font: inherit; color: var(--ink); background: var(--card); border: 2px dashed var(--muted); cursor: pointer; }
-.syl.blank.filled { border-style: solid; border-color: var(--line); }
+.syl.blank { font: inherit; color: var(--ink); background: var(--card); border: 2px dashed var(--muted); }
+/* the tone you drew, when it was wrong: in space kept free, so the pad below doesn't move */
+.draw-row .syl.blank { position: relative; padding-bottom: 1.15rem; }
+.draw-row .syl.blank s { position: absolute; left: 0; right: 0; bottom: 3px; line-height: 1; }
 .syl.blank.active { border-style: solid; border-color: var(--ink); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ink) 15%, transparent); }
 .syl.blank .gap { color: var(--muted); font-weight: 500; }
 .syl.blank.right { border: 2px solid var(--good); background: color-mix(in srgb, var(--good) 12%, var(--card)); }
 .syl.blank.wrong { border: 2px solid var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--card)); }
-.verdict .syl.blank { cursor: default; }
+.syl.blank.right, .syl.blank.wrong { animation: syl-pop 0.3s ease-out; }
+@keyframes syl-pop { 40% { transform: scale(1.12); } }
+
+/* tone drawing pad */
+.tone-pad { margin: 10px 0 4px; border: 2px solid var(--line); border-radius: var(--radius); background: var(--card); touch-action: none; user-select: none; -webkit-user-select: none; }
+.pad-canvas { display: block; width: 100%; height: 190px; touch-action: none; cursor: crosshair; }
+.tone-pad.shake { animation: pad-shake 0.35s; }
+@keyframes pad-shake { 20%, 60% { transform: translateX(-6px); } 40%, 80% { transform: translateX(6px); } }
+.pad-hint { min-height: 1.45em; font-weight: 600; }
+.pad-hint.muted { font-weight: 400; }
 
 /* Number keypad */
 .num-display { text-align: center; font-size: 2rem; font-weight: 700; letter-spacing: 0.04em; font-variant-numeric: tabular-nums; min-height: 1.6em; margin: 8px auto 12px; padding: 6px 12px; border: 2px solid var(--line); border-radius: 14px; background: var(--card); }
