@@ -43,9 +43,14 @@ export function modelContour(py) {
   });
 }
 
-// Syllables whose tone changes in speech, e.g. ["nǐ → ní"].
+// Syllables whose tone changes in speech: [{ text: 'nǐ', said: 'ní', sure }]. In a run of three
+// or more 3rd tones only the one before the last always changes; whether the earlier ones do
+// depends on how the speaker groups the words (我很好 is wó hén hǎo or wǒ hén hǎo), so they
+// aren't `sure`.
 export function toneChanges(py) {
-  return modelContour(py).filter(s => s.said !== s.text).map(s => `${s.text} → ${s.said}`);
+  const syl = modelContour(py);
+  return syl.flatMap((s, i) => (s.said === s.text ? []
+    : [{ text: s.text, said: s.said, sure: syl[i + 1].said === syl[i + 1].text }]));
 }
 
 // Chao 1–5 → semitones around the middle of the voice (about 2.5 semitones per step).

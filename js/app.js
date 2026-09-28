@@ -70,12 +70,23 @@ function freshScreen(fraction, onClose) {
 
 // ---------------------------------------------------------------- shared bits
 
+// Under the pinyin: where the tones you hear differ from the ones written, e.g. nǐ → ní.
+// Changes that depend on phrasing (in runs of three or more 3rd tones) are marked "often".
+function saidLine(py) {
+  const changes = toneChanges(py);
+  if (!changes.length) return '';
+  return `<div class="said">Tone change${changes.length > 1 ? 's' : ''}: ${changes.map(c =>
+    `${colorPinyin(c.text)} → ${colorPinyin(c.said)}${c.sure ? '' : ' <i>(often)</i>'}`).join(', ')}</div>`;
+}
+
 function phraseBlock(item, { big = true } = {}) {
   return `
     <div class="phrase ${big ? 'big' : ''}">
       <div class="py">${colorPinyin(item.py)}</div>
+      ${saidLine(item.py)}
       ${state.settings.showHanzi ? `<div class="zh">${esc(item.zh)}</div>` : ''}
       <div class="en">${esc(item.en)}</div>
+      ${item.lit ? `<div class="lit">literally “${esc(item.lit)}”</div>` : ''}
     </div>`;
 }
 
@@ -86,6 +97,7 @@ function exampleBlock(item) {
       <button class="icon-btn play-ex" aria-label="Play example">▶</button>
       <div>
         <div class="py">${colorPinyin(py)}</div>
+        ${saidLine(py)}
         ${state.settings.showHanzi ? `<div class="zh">${esc(zh)}</div>` : ''}
         <div class="en">${esc(en)}</div>
       </div>
@@ -153,7 +165,6 @@ function speakCheck(target, { onResult, py, hidden = false } = {}) {
   if (usePitch) {
     const btn = $('.tones', el);
     const syl = syllables(py.split('/')[0]).length;
-    const changes = toneChanges(py);
     let canvas = null, stopper = null, contour = [], revealed = !hidden;
     const draw = () => drawCompare(canvas, py, contour, { hideModel: !revealed });
     const modelBtn = h('<button class="btn small">🔊 Model</button>');
@@ -162,16 +173,15 @@ function speakCheck(target, { onResult, py, hidden = false } = {}) {
       revealed = true;
       if (!canvas) return;
       draw();
-      $('.changes', el)?.classList.remove('hidden');
       if (out.childElementCount && !modelBtn.isConnected) out.append(modelBtn);
     };
     btn.onclick = async () => {
       if (stopper) { stopper.abort(); return; }
       stopSpeaking();
       if (!canvas) {
+        // The tone changes are shown with the pinyin (saidLine), so not again here.
         const box = h(`<div class="compare">
             <canvas class="pitch compare-canvas" width="640" height="260"></canvas>
-            ${changes.length ? `<div class="changes muted small center ${revealed ? '' : 'hidden'}">Said with tone changes: ${changes.map(esc).join(', ')}</div>` : ''}
           </div>`);
         el.append(box);
         canvas = $('canvas', box);
@@ -1366,7 +1376,7 @@ function startShadowing() {
     const [zh, py, en] = items[i].ex;
     const el = h(`<section class="study">
         <div class="kind speak">🗣 Shadow: listen, then repeat right away</div>
-        <div class="phrase big"><div class="py">${colorPinyin(py)}</div>${state.settings.showHanzi ? `<div class="zh">${esc(zh)}</div>` : ''}<div class="en">${esc(en)}</div></div>
+        <div class="phrase big"><div class="py">${colorPinyin(py)}</div>${saidLine(py)}${state.settings.showHanzi ? `<div class="zh">${esc(zh)}</div>` : ''}<div class="en">${esc(en)}</div></div>
         <div class="slot-audio"></div>
         <div class="slot-speak"></div>
         <button class="btn primary big next">Next →</button>
