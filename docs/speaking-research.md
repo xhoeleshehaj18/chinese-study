@@ -2,6 +2,8 @@
 
 Research notes and a prioritised roadmap (September 2026). Each suggestion says what to change, why (with the evidence), and where in the code it would go.
 
+A deeper second pass, with more sources, evidence strength and simulations of the app's own settings, is in [`deep-research.md`](deep-research.md). It reorders the roadmap below.
+
 **Done so far:**
 - #1, several voices: six for the sound drills, two for phrases and numbers, and 44 tone syllables for stage 1. The extra clips are made by `tools/make_audio.py`.
 - #5, shadowing in the daily session.
