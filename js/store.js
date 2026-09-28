@@ -20,7 +20,8 @@ const defaults = () => ({
   day: { date: today(), newCount: 0, reviews: 0 },
   streak: { last: null, count: 0 },
   // Stage-by-stage progression (see path.js).
-  path: { stage: 0, hist: {}, passed: {}, unitIntro: {}, testTried: {}, miss: {}, level: {}, warmup: null },
+  // warmup / shadow: the date of the day's warm-up and shadowing; voice: each drill's last voice.
+  path: { stage: 0, hist: {}, passed: {}, unitIntro: {}, testTried: {}, miss: {}, level: {}, warmup: null, shadow: null, voice: {} },
   lastBackup: null,     // date of the last export
 });
 

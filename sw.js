@@ -1,8 +1,8 @@
 // Network-first service worker: always fetch the latest version when online,
 // fall back to the cached copy when offline.
 // Bump this when CORE changes (and keep FILES in js/update.js in step).
-const CACHE = 'shuo-zhongwen-v15';
-// Voice clips are named by a hash of their text, so a cached clip never goes stale. They live in
+const CACHE = 'shuo-zhongwen-v16';
+// Voice clips are named by a hash of their voice and text, so a cached clip never goes stale. They live in
 // their own cache that survives app updates; clips no longer in the manifest are pruned.
 const AUDIO = 'shuo-zhongwen-audio';
 
@@ -25,7 +25,7 @@ self.addEventListener('activate', e => {
     caches.keys()
       .then(keys => Promise.all(keys.filter(k => k !== CACHE && k !== AUDIO).map(k => caches.delete(k))))
       .then(() => self.clients.claim())
-      .then(() => { cacheClips(); }) // in the background: activation shouldn't wait for ~7 MB
+      .then(() => { cacheClips(); }) // in the background: activation shouldn't wait for all the clips
   );
 });
 
@@ -33,7 +33,9 @@ self.addEventListener('activate', e => {
 async function cacheClips() {
   try {
     const manifest = await (await fetch('audio/manifest.json', { cache: 'no-cache' })).json();
-    const wanted = new Set(Object.values(manifest).map(f => new URL(`audio/${f}`, self.registration.scope).href));
+    // { text: { voice: file } } (or, from older versions, { text: file }).
+    const files = Object.values(manifest).flatMap(v => (typeof v === 'string' ? [v] : Object.values(v)));
+    const wanted = new Set(files.map(f => new URL(`audio/${f}`, self.registration.scope).href));
     const cache = await caches.open(AUDIO);
     for (const req of await cache.keys()) if (!wanted.has(req.url)) await cache.delete(req);
     const have = new Set((await cache.keys()).map(r => r.url));

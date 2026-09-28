@@ -4,11 +4,23 @@
 // Everything in the course has a recorded neural-voice clip in audio/ (made by
 // tools/make_audio.py). The browser's own text-to-speech is only a fallback for text
 // without a clip, or a clip that can't be loaded (offline before it was cached).
+//
+// The listening drills are also recorded in other voices, so you learn the tones rather than
+// one speaker's way of saying them. A drill round uses one voice (useVoice), and anything
+// without a clip in that voice is said in the default one.
+
+export const DEFAULT_VOICE = 'xiaoxiao';
+// Keep in step with VOICES in tools/make_audio.py.
+export const VOICE_INFO = {
+  xiaoxiao: 'Xiaoxiao, female', xiaoyi: 'Xiaoyi, female', yunjian: 'Yunjian, male',
+  yunxi: 'Yunxi, male', yunxia: 'Yunxia, boy', yunyang: 'Yunyang, male',
+};
 
 const CLIP_RATE = 0.85; // the speed setting at which clips play at their natural speed
 let voice = null;
 let rate = CLIP_RATE;
-let clips = {};              // spoken text → file in audio/
+let clips = {};              // spoken text → { voice: file in audio/ }
+let roundVoice = null;       // the voice to use when a clip has it (null: the default)
 const clipUrls = new Map();  // file → blob URL, so replays start instantly
 const player = new Audio();
 let finish = null;           // resolves the promise of whatever is playing now
@@ -27,7 +39,11 @@ function pickVoice() {
 }
 
 export function initTTS(onVoices) {
-  fetch('audio/manifest.json').then(r => r.json()).then(m => { clips = m; onVoices?.(); }).catch(() => {});
+  fetch('audio/manifest.json').then(r => r.json()).then(m => {
+    // Older manifests map text straight to one file, in the default voice.
+    clips = Object.fromEntries(Object.entries(m).map(([t, f]) => [t, typeof f === 'string' ? { [DEFAULT_VOICE]: f } : f]));
+    onVoices?.();
+  }).catch(() => {});
   // iOS only lets an audio element play on its own once it has played during a tap.
   const unlock = () => {
     player.src = silence();
@@ -62,6 +78,19 @@ export function hasChineseVoice() {
 
 export function setRate(r) { rate = r; }
 
+// Whether `text` has a recorded clip (in any voice).
+export const hasClip = text => !!clips[speechText(text)];
+
+// The voices any of `texts` are recorded in, in VOICE_INFO order.
+export function voicesOf(texts) {
+  const found = new Set();
+  for (const t of texts) for (const v of Object.keys(clips[speechText(t)] || {})) found.add(v);
+  return Object.keys(VOICE_INFO).filter(v => found.has(v));
+}
+
+// Says everything in voice `v` from now on, where there's a clip in it (null: the default voice).
+export function useVoice(v) { roundVoice = v; }
+
 // Stops whatever is being said.
 export function stopSpeaking() {
   player.pause();
@@ -80,19 +109,26 @@ export function speak(text, { slow = false } = {}) {
   let done;
   const p = new Promise(res => { done = res; });
   finish = done;
-  const file = clips[clean];
-  if (!file) { speakTTS(clean, slow, done); return p; }
-  const fallback = () => finish === done && speakTTS(clean, slow, done);
-  clipUrl(file).then(url => {
+  const byVoice = clips[clean] || {};
+  // This round's voice, then the default one (e.g. offline, before the other voice was cached),
+  // then the browser's own voice.
+  const files = [...new Set([byVoice[roundVoice], byVoice[DEFAULT_VOICE], ...Object.values(byVoice)])].filter(Boolean);
+  const next = () => {
     if (finish !== done) return; // something else started meanwhile
-    player.src = url;
-    // Setting src resets the speed in some browsers, so set it afterwards.
-    player.defaultPlaybackRate = player.playbackRate = (slow ? 0.7 : 1) * rate / CLIP_RATE;
-    player.preservesPitch = player.webkitPreservesPitch = true; // slow down without lowering the pitch
-    player.onended = done;
-    player.onerror = fallback;
-    player.play().catch(e => (e.name === 'AbortError' ? done() : fallback()));
-  }, fallback);
+    const file = files.shift();
+    if (!file) return speakTTS(clean, slow, done);
+    clipUrl(file).then(url => {
+      if (finish !== done) return;
+      player.src = url;
+      // Setting src resets the speed in some browsers, so set it afterwards.
+      player.defaultPlaybackRate = player.playbackRate = (slow ? 0.7 : 1) * rate / CLIP_RATE;
+      player.preservesPitch = player.webkitPreservesPitch = true; // slow down without lowering the pitch
+      player.onended = done;
+      player.onerror = next;
+      player.play().catch(e => (e.name === 'AbortError' ? done() : next()));
+    }, next);
+  };
+  next();
   return p;
 }
 

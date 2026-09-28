@@ -8,12 +8,12 @@ import {
   STAGES, stageIndex, currentStage, isPassed, isUnlocked, unlockedUnitIds, gateStatus,
   passStage, recordAnswers, undoLastAnswer, unitStatus, weightedPick, missWeight, levelOf, LISTENING,
 } from './path.js';
-import { PHRASE_LEVELS, phrasesFor, weightedSample, toneless, withTone } from './phrase-tones.js';
+import { PHRASES, PHRASE_LEVELS, phrasesFor, weightedSample, toneless, withTone } from './phrase-tones.js';
 import { createTonePad } from './tone-pad.js';
 import { NUMBER_SETS, NUMBER_LEVELS } from './numbers.js';
 import {
   initTTS, hasChineseVoice, setRate, speak, stopSpeaking, canRecognize, recognize, matchScore,
-  canRecord, trackPitch, cleanContour, releaseMic,
+  canRecord, trackPitch, cleanContour, releaseMic, hasClip, voicesOf, useVoice, VOICE_INFO,
 } from './speech.js';
 import { classifyTone, checkPair } from './tone-grade.js';
 import { colorPinyin, syllables } from './pinyin.js';
@@ -46,6 +46,7 @@ function go(tab) {
   clearInterval(waitTimer);
   session = null;
   stopSpeaking();
+  useVoice(null);
   releaseMic();
   view.replaceChildren();
   TABS[tab]();
@@ -381,7 +382,8 @@ function stageIntro(stage, box) {
       <p>You'll hear one syllable and <b>draw its tone</b> on the pad, roughly: it snaps to the nearest tone. Height counts, not just direction:</p>
       ${drawGuide(false)}
       <p>Most people mix up 2 and 3 at first: 2 rises steadily, 3 dips low. Get one wrong and you'll see the right tone drawn in and hear it again.</p>${pass}`;
-    let set = TONE_SETS[0];
+    const sets = toneSets();
+    let set = sets[0];
     const label = () => box.querySelectorAll('.tone-card b').forEach((b, i) => (b.textContent = set.py[i]));
     label();
     box.querySelectorAll('.tone-card').forEach(b => (b.onclick = () => {
@@ -389,7 +391,7 @@ function stageIntro(stage, box) {
       speak(set.zh[t - 1]);
       $('.tip-line', box).textContent = `${TONE_INFO[t - 1].name}: ${TONE_INFO[t - 1].tip}`;
     }));
-    $('.another', box).onclick = () => { set = TONE_SETS[(TONE_SETS.indexOf(set) + 1) % TONE_SETS.length]; label(); };
+    $('.another', box).onclick = () => { set = sets[(sets.indexOf(set) + 1) % sets.length]; label(); };
   } else if (stage.id === 'pairs') {
     box.innerHTML = `
       <p>In real speech, tones come in combinations, and neighbouring tones change each other. You'll hear a two-syllable word and <b>draw its two tones</b> on the pad, one after the other:</p>
@@ -464,8 +466,41 @@ function stageIntro(stage, box) {
 
 // ---------------------------------------------------------------- drills (stages 1–5)
 
+// Tone-trainer syllables that have recorded clips. A set without them would be said by the
+// browser's own voice, which can get a single syllable's tone wrong. All sets if none have clips.
+function toneSets() {
+  const recorded = TONE_SETS.filter(s => s.zh.every(hasClip));
+  return recorded.length ? recorded : TONE_SETS;
+}
+
+// What each drill says, to find the voices it's recorded in.
+const DRILL_TEXTS = {
+  tones: () => toneSets().flatMap(s => s.zh),
+  pairs: () => PAIR_WORDS.map(w => w.zh),
+  changes: () => CHANGE_WORDS.map(w => w.zh),
+  phrases: () => PHRASES.map(p => p.zh),
+  sounds: () => SOUND_SETS.flatMap(s => s.groups.flatMap(g => g.map(([zh]) => zh))),
+  say: () => toneSets().flatMap(s => s.zh),
+  saypairs: () => PAIR_WORDS.map(w => w.zh),
+  numbers: () => NUMBER_SETS.flat().map(x => x.zh),
+};
+
+// A drill round is said in one voice, a different one from the stage's round before: hearing
+// several speakers teaches the tones themselves rather than one voice's version of them.
+// Returns the voice, or null when the drill only has the default one.
+function startRoundVoice(stages) {
+  const voices = voicesOf(stages.flatMap(s => DRILL_TEXTS[s.id]?.() || []));
+  if (voices.length < 2) { useVoice(null); return null; }
+  const key = stages.length > 1 ? 'warmup' : stages[0].id;
+  const v = pick(voices.filter(x => x !== state.path.voice[key]));
+  state.path.voice[key] = v;
+  save();
+  useVoice(v);
+  return v;
+}
+
 function startDrill(stage) {
-  drillNext({ stage, asked: 0, right: 0, size: 20, passedNow: false });
+  drillNext({ stage, asked: 0, right: 0, size: 20, passedNow: false, voice: startRoundVoice([stage]) });
 }
 
 function drillNext(run) {
@@ -477,6 +512,7 @@ function drillNext(run) {
   const gate = h(`<div class="gate-mini">${gateBox(stage)}</div>`);
   const box = h('<section class="study drill"></section>');
   view.append(box, gate);
+  if (run.voice) view.append(h(`<p class="voice-tag muted small center">🎙 Voice: ${esc(VOICE_INFO[run.voice])} · a different voice each round</p>`));
   const { answer, undo } = answerFns(run, stage, () => (gate.innerHTML = gateBox(stage)));
   DRILLS[stage.id](box, { answer, undo, next: () => drillNext(run), run, stage });
 }
@@ -650,7 +686,7 @@ function drawTones(box, { zh, syl, blanks = syl.map((_, i) => i), question, belo
 
 const DRILLS = {
   tones(box, { answer, next, stage }) {
-    const set = pick(TONE_SETS);
+    const set = pick(toneSets());
     const t = weightedPick(stage, [1, 2, 3, 4], n => n);
     drawTones(box, {
       zh: set.zh[t - 1],
@@ -712,7 +748,10 @@ const DRILLS = {
   phrases(box, { answer, next, stage, level: lv = levelOf(stage) }) {
     const level = PHRASE_LEVELS[lv - 1];
     const weight = s => missWeight(stage, s.tone);
-    const pool = phrasesFor(lv).filter(p => p.zh !== lastPhrase);
+    // Only phrases with a recorded clip: the browser's own voice can get the tones wrong.
+    const recorded = phrasesFor(lv).filter(p => hasClip(p.zh));
+    const all = recorded.length ? recorded : phrasesFor(lv);
+    const pool = all.length > 1 ? all.filter(p => p.zh !== lastPhrase) : all;
     const [phrase] = weightedSample(pool, p => Math.max(...p.syl.filter(s => s.ask).map(weight)), 1);
     lastPhrase = phrase.zh;
     const { syl } = phrase;
@@ -771,7 +810,7 @@ const DRILLS = {
       box.innerHTML = '<p class="muted">This browser can\'t use the microphone, so this stage can\'t be checked here. Try another browser, or skip the stage from the Me tab.</p>';
       return;
     }
-    const set = pick(TONE_SETS);
+    const set = pick(toneSets());
     const t = weightedPick(stage, [1, 2, 3, 4], n => n);
     const info = TONE_INFO[t - 1];
     box.innerHTML = `
@@ -1018,12 +1057,14 @@ const warmupStages = () => STAGES.filter(s => LISTENING.includes(s.id) && isPass
 
 function beginSession(stage) {
   if (state.path.warmup === today() || !warmupStages().length) return startUnitSession(stage);
+  startRoundVoice(warmupStages());
   warmupNext({ asked: 0, right: 0, size: 10, then: () => startUnitSession(stage) });
 }
 
 function endWarmup(run) {
   state.path.warmup = today();
   save();
+  useVoice(null);
   run.then();
 }
 
@@ -1090,6 +1131,7 @@ function nextStep() {
   if (session.pending[0]?.due <= now) step = session.pending.shift().step;
   else if (session.queue.length) step = session.queue.shift();
   const total = session.done + session.queue.length + session.pending.length + (step ? 1 : 0);
+  if (!step && shadowDue()) return dailyShadowing(); // at the session's first break
   freshScreen(total ? session.done / total : 1, () => go('today'));
   if (!step) return session.pending.length ? renderWait() : renderSessionDone();
   if (step.type === 'card' && !state.cards[step.id]) return nextStep();
@@ -1372,27 +1414,54 @@ function renderPath() {
     $('.ex', r).onclick = () => speak(item.ex[0]);
   });
   const sh = $('.shadow', el);
-  if (sh) sh.onclick = startShadowing;
+  if (sh) sh.onclick = () => runShadowing(shadowItems(10), { done: () => go('path') });
   view.append(el);
 }
 
-function startShadowing() {
-  const items = shuffle(state.learned.map(id => ITEM_BY_ID[id]).filter(Boolean)).slice(0, 10);
+// ---------------------------------------------------------------- shadowing
+
+// Listen to an example sentence and repeat it straight away, copying its rhythm and melody.
+// Once a day it's part of the phrase session, at its first break (when there's nothing due
+// right now); the Path tab has more.
+const SHADOW_DAILY = 4;
+const shadowDue = () => state.path.shadow !== today() && state.learned.length >= 3;
+
+// `n` learned phrases, leaning towards the ones you find hard to say (lapses and difficulty
+// of their Speak card) and the ones you learned most recently.
+function shadowItems(n) {
+  const recent = new Set(state.learned.slice(-10));
+  const weight = item => {
+    const c = state.cards[`${item.id}:speak`];
+    return 1 + (c?.lapses || 0) + Math.max(0, (c?.difficulty ?? 5) - 5) / 2 + (recent.has(item.id) ? 1 : 0);
+  };
+  return weightedSample(state.learned.map(id => ITEM_BY_ID[id]).filter(Boolean), weight, n);
+}
+
+function dailyShadowing() {
+  const finish = () => { state.path.shadow = today(); save(); nextStep(); };
+  runShadowing(shadowItems(SHADOW_DAILY), { daily: true, done: finish, close: () => go('today') });
+}
+
+function runShadowing(items, { daily = false, done, close = done }) {
   let i = 0;
   const show = () => {
-    if (i >= items.length) return go('path');
-    freshScreen(i / items.length, () => go('path'));
+    if (i >= items.length) return done();
+    freshScreen(i / items.length, close);
     const [zh, py, en] = items[i].ex;
     const el = h(`<section class="study">
-        <div class="kind speak">🗣 Shadow: listen, then repeat right away</div>
+        <div class="kind speak">🗣 Shadow${daily ? ` ${i + 1}/${items.length}` : ''}: listen, then repeat right away</div>
+        ${daily && !i ? '<p class="muted small center">Part of today\'s session: copy the rhythm and melody as closely as you can.</p>' : ''}
         <div class="phrase big"><div class="py">${colorPinyin(py)}</div>${saidLine(py)}${state.settings.showHanzi ? `<div class="zh">${esc(zh)}</div>` : ''}<div class="en">${esc(en)}</div></div>
         <div class="slot-audio"></div>
         <div class="slot-speak"></div>
         <button class="btn primary big next">Next →</button>
+        ${daily ? '<button class="link-btn muted small skip">Skip shadowing today</button>' : ''}
       </section>`);
     $('.slot-audio', el).replaceWith(audioButtons(zh));
     $('.slot-speak', el).replaceWith(speakCheck(zh, { py }));
     $('.next', el).onclick = () => { i++; show(); };
+    const skip = $('.skip', el);
+    if (skip) skip.onclick = done;
     view.append(el);
     speak(zh);
   };
