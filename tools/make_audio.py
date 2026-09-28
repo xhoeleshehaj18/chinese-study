@@ -29,6 +29,8 @@ for (const s of c.TONE_SETS) s.zh.forEach(z => texts.add(z));
 for (const w of c.PAIR_WORDS) texts.add(w.zh);
 for (const w of c.CHANGE_WORDS) texts.add(w.zh);
 for (const s of c.SOUND_SETS) for (const g of s.groups) for (const [z] of g) texts.add(z);
+const n = await import('./js/numbers.js');
+for (const set of n.NUMBER_SETS) for (const x of set) texts.add(x.zh);
 const clean = t => t.replace(/[…]/g, '').replace(/\s*\/\s*/g, '，').trim();
 console.log(JSON.stringify([...new Set([...texts].map(clean))].filter(Boolean)));
 """

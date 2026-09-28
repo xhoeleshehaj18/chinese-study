@@ -1,10 +1,12 @@
 // The course path: one stage at a time, each unlocked only when the previous one is mastered.
 import { UNITS } from './content.js';
 import { PHRASE_LEVELS } from './phrase-tones.js';
+import { NUMBER_LEVELS } from './numbers.js';
 import { state, save, today, markStudied, State, KINDS } from './store.js';
 
 // Listening drills pass at 98% of the last 50 answers. Saying tones is judged by an automatic
-// pitch tracker, which is itself less accurate than 98%, so that stage passes at 90%.
+// pitch tracker, which is itself less accurate than 98%, so those stages pass lower: 90% for
+// single syllables, and 80% for tone pairs, where the tracker has to split the word in two first.
 // A stage with `levels` (their labels) moves up a level each time it reaches the pass mark, and passes on the last one.
 export const STAGES = [
   { id: 'tones', kind: 'drill', emoji: '👂', title: 'Hear the four tones', window: 50, need: 49 },
@@ -13,8 +15,15 @@ export const STAGES = [
   { id: 'phrases', kind: 'drill', emoji: '👂', title: 'Hear tones in phrases', window: 50, need: 49, levels: PHRASE_LEVELS.map(l => l.label) },
   { id: 'sounds', kind: 'drill', emoji: '👂', title: 'Hear tricky sounds', window: 50, need: 49 },
   { id: 'say', kind: 'drill', emoji: '🗣', title: 'Say the four tones', window: 50, need: 45 },
+  { id: 'saypairs', kind: 'drill', emoji: '🗣', title: 'Say tone pairs', window: 50, need: 40 },
   ...UNITS.map(u => ({ id: u.id, kind: 'unit', emoji: u.emoji, title: u.title, unit: u })),
 ];
+// Numbers come right after the unit that teaches 1–10.
+STAGES.splice(STAGES.findIndex(s => s.id === 'u3') + 1, 0,
+  { id: 'numbers', kind: 'drill', emoji: '👂', title: 'Catch the numbers', window: 50, need: 49, levels: NUMBER_LEVELS.map(l => l.label) });
+
+// Stages whose questions can be mixed into the daily warm-up: the listening drills.
+export const LISTENING = ['tones', 'pairs', 'changes', 'phrases', 'sounds', 'numbers'];
 
 export const stageIndex = s => STAGES.indexOf(s);
 export const currentStage = () => STAGES[state.path.stage] || null; // null once the whole course is passed
@@ -43,7 +52,7 @@ export function passStage(stage) {
 // Drills lean towards what you get wrong. Each miss makes that item (a tone, a word, a sound
 // contrast) come up more often, up to 4× as often; each right answer slowly brings it back to normal.
 const missesFor = stage => (state.path.miss[stage.id] ||= {});
-let lastMiss = null; // for undo
+let lastBatch = null; // the last question's answers, for undo
 
 export const missWeight = (stage, key) => 1 + (missesFor(stage)[key] || 0);
 
@@ -56,7 +65,7 @@ export function weightedPick(stage, options, keyOf) {
 function noteMiss(stage, key, correct) {
   const m = missesFor(stage);
   const prev = m[key] || 0;
-  lastMiss = { stage, key, prev };
+  lastBatch.misses.push({ key, prev });
   const next = correct ? Math.max(0, prev - 0.5) : Math.min(3, prev + 1);
   if (next) m[key] = next;
   else delete m[key];
@@ -72,6 +81,7 @@ export function recordAnswer(stage, correct, key) {
 // Returns 'passed' when they passed the current stage, 'level' when they finished a level.
 export function recordAnswers(stage, answers) {
   const h = (state.path.hist[stage.id] ||= []);
+  lastBatch = { stage, n: answers.length, misses: [] };
   for (const { correct, key } of answers) {
     h.push(correct ? 1 : 0);
     if (key !== undefined) noteMiss(stage, key, correct);
@@ -90,14 +100,16 @@ export function recordAnswers(stage, answers) {
   return 'passed';
 }
 
+// Takes back the last question's answers (all its parts).
 export function undoLastAnswer(stage) {
-  state.path.hist[stage.id]?.pop();
-  if (lastMiss?.stage === stage) {
-    const m = missesFor(stage);
-    if (lastMiss.prev) m[lastMiss.key] = lastMiss.prev;
-    else delete m[lastMiss.key];
-    lastMiss = null;
+  if (lastBatch?.stage !== stage) return;
+  state.path.hist[stage.id]?.splice(-lastBatch.n);
+  const m = missesFor(stage);
+  for (const { key, prev } of lastBatch.misses.reverse()) {
+    if (prev) m[key] = prev;
+    else delete m[key];
   }
+  lastBatch = null;
   save();
 }
 

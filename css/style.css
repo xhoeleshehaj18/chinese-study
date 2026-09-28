@@ -186,6 +186,17 @@ h1 .muted, h2 .muted { font-size: 0.85rem; font-weight: 400; margin-left: 6px; }
 .syl.blank .gap { color: var(--muted); font-weight: 500; }
 .syl.blank.right { border: 2px solid var(--good); background: color-mix(in srgb, var(--good) 12%, var(--card)); }
 .syl.blank.wrong { border: 2px solid var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--card)); }
+.verdict .syl.blank { cursor: default; }
+
+/* Number keypad */
+.num-display { text-align: center; font-size: 2rem; font-weight: 700; letter-spacing: 0.04em; font-variant-numeric: tabular-nums; min-height: 1.6em; margin: 8px auto 12px; padding: 6px 12px; border: 2px solid var(--line); border-radius: 14px; background: var(--card); }
+.num-display.right { border-color: var(--good); background: color-mix(in srgb, var(--good) 12%, var(--card)); }
+.num-display.wrong { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--card)); }
+.keypad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 0 0 12px; }
+.key { font: inherit; font-size: 1.4rem; font-weight: 700; padding: 12px 0; border: 2px solid var(--line); border-radius: 14px; background: var(--card); color: var(--ink); cursor: pointer; }
+.key:active { background: var(--line); }
+.key:disabled { opacity: 0.5; }
+.num-answer { font-size: 1.3rem; font-variant-numeric: tabular-nums; }
 .syl s { font-size: 0.8rem; font-weight: 500; }
 .choices.five { grid-template-columns: repeat(5, 1fr); gap: 6px; }
 .choices.five .choice { padding: 8px 2px; font-size: 0.95rem; }

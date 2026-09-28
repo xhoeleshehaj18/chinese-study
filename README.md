@@ -3,7 +3,7 @@
 A speaking-first Mandarin study app for beginners. Static site — no build step, no login. Runs on GitHub Pages.
 
 ## Method
-One thing at a time. The course is a path of 18 stages, and each one unlocks only when you've mastered the one before it.
+One thing at a time. The course is a path of 20 stages, and each one unlocks only when you've mastered the one before it.
 
 | # | Stage | Pass mark |
 |---|-------|-----------|
@@ -13,7 +13,10 @@ One thing at a time. The course is a path of 18 stages, and each one unlocks onl
 | 4 | 👂 Hear tones in phrases (fill in the missing tones of a natural phrase, in 4 levels) | 49 of your last 50 on each level |
 | 5 | 👂 Hear tricky sounds (zh/j/z, ch/q/c, sh/x/s, u/ü, n/ng, r/l, aspiration) | 49 of your last 50 |
 | 6 | 🗣 Say the four tones (graded from your voice's pitch) | 45 of your last 50 (90%, because pitch tracking isn't precise enough for 98%) |
-| 7–18 | Phrase units | A unit test on a later day: every phrase both ways, 98% of questions right (a perfect score for units under 50 questions), one try per day |
+| 7 | 🗣 Say tone pairs (two-syllable words, each syllable checked) | 40 of your last 50 syllables (80%, because splitting a word into syllables makes pitch tracking less reliable still) |
+| 8–10 | Phrase units 1–3 (up to "Numbers 1–10") | A unit test on a later day: every phrase both ways, 98% of questions right (a perfect score for units under 50 questions), one try per day |
+| 11 | 👂 Catch the numbers (hear a number, type it: 11–99, hundreds, prices in 块, phone numbers, in 4 levels) | 49 of your last 50 on each level |
+| 12–20 | Phrase units 4–12 | As above |
 
 Inside a phrase unit:
 - **Spaced repetition (FSRS)** brings each phrase back right before you'd forget it. Earlier units stay in review.
@@ -23,6 +26,10 @@ Inside a phrase unit:
 - Pinyin comes first, with tone colours (1 red · 2 orange · 3 green · 4 blue). Simplified characters are shown alongside and can be hidden.
 
 **Hear tones in phrases** plays a word or example sentence from the phrase units and shows its pinyin with some tones left out. Level 1 leaves out one tone in a 2–4 syllable phrase, level 2 two tones, level 3 three tones in phrases of 5+ syllables, and level 4 every tone. Each tone counts as one answer; at 49 of the last 50 you move up a level and the count starts again. The answer is the tone as spoken (你好 is ní hǎo). In a run of three or more 3rd tones, which ones become 2nd tones depends on phrasing, so those syllables are shown with a dotted underline and never asked (the last one, which always stays 3rd, is).
+
+**Say tone pairs** shows a word from stage 2 and records you. It splits your pitch into the two syllables (at the break in your voice between them, or where the pitch jumps) and checks each against rules for its tone: a 1st tone level and not lower than the other syllable, a 2nd tone climbing, a 3rd tone lower than the other syllable, a 4th tone dropping. Tested on recordings of two native voices at two speeds, it accepts about 80% of correctly said syllables and about 20% of wrong ones, which is why the pass mark is lower and the pitch picture is the main guide. "Don't count this one" takes back both syllables.
+
+**Warm-up.** Before the first phrase session of each day, you get about 10 quick questions mixed from the listening stages you've passed, leaning towards what you've been missing. You can skip it.
 
 Drills lean towards what you get wrong: a tone, word or sound you miss comes up more often until you get it right again.
 
@@ -35,10 +42,11 @@ You can skip a stage on the **Me** tab if you already know it.
 - `audio/`: a natural-voice clip (Microsoft's neural voice Xiaoxiao, via [edge-tts](https://github.com/rany2/edge-tts)) for every word and sentence the app says, named by a hash of the text, plus `manifest.json`. Anything without a clip falls back to the browser's own text-to-speech, which sounds more robotic.
 - `tools/make_audio.py`: makes the clips. After editing `content.js`, run `python3 tools/make_audio.py` (needs `pip install edge-tts` and ffmpeg). It only makes new clips and deletes ones no longer used.
 - `js/path.js`: stage list, pass marks, levels and unlocking.
+- `js/numbers.js`: how numbers, prices and phone numbers are said, and the fixed set of them for "Catch the numbers" (fixed so each has a clip; `make_audio.py` reads it).
 - `js/phrase-tones.js`: the phrases and levels for "Hear tones in phrases", built from `content.js`, with spoken tones worked out by `pitch-view.js`.
 - `js/store.js`: progress in `localStorage` and FSRS scheduling ([ts-fsrs](https://github.com/open-spaced-repetition/ts-fsrs), MIT, vendored in `vendor/`).
 - `js/speech.js`: text-to-speech, speech recognition, recording, pitch detection.
-- `js/tone-grade.js`: classifies a pitch contour as tone 1–4.
+- `js/tone-grade.js`: classifies a pitch contour as tone 1–4, and checks each syllable of a two-syllable word against its tone.
 - `js/pitch-view.js`: expected phrase melody (with tone changes) and the side-by-side pitch picture.
 - `js/app.js`: UI.
 

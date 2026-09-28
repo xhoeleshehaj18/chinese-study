@@ -10,7 +10,7 @@ export const ITEM_BY_ID = Object.fromEntries(ITEMS.map(i => [i.id, i]));
 export const KINDS = ['listen', 'speak'];
 export { Rating, State };
 
-const VERSION = 3;
+const VERSION = 4;
 
 const defaults = () => ({
   version: VERSION,
@@ -20,7 +20,7 @@ const defaults = () => ({
   day: { date: today(), newCount: 0, reviews: 0 },
   streak: { last: null, count: 0 },
   // Stage-by-stage progression (see path.js).
-  path: { stage: 0, hist: {}, passed: {}, unitIntro: {}, testTried: {}, miss: {}, level: {} },
+  path: { stage: 0, hist: {}, passed: {}, unitIntro: {}, testTried: {}, miss: {}, level: {}, warmup: null },
   lastBackup: null,     // date of the last export
 });
 
@@ -37,6 +37,16 @@ function migrate(s) {
   if (v < 3 && s.path?.stage >= 3) {
     s.path.stage++;
     s.path.passed = { ...s.path.passed, phrases: today() };
+  }
+  // v4 inserted "Say tone pairs" as stage 7 (after "Say the four tones"), then "Catch the
+  // numbers" after unit 3 (stage 10 once tone pairs is in).
+  if (v < 4 && s.path?.stage >= 6) {
+    s.path.stage++;
+    s.path.passed = { ...s.path.passed, saypairs: today() };
+  }
+  if (v < 4 && s.path?.stage >= 10) {
+    s.path.stage++;
+    s.path.passed = { ...s.path.passed, numbers: today() };
   }
   s.version = VERSION;
   return s;
