@@ -124,8 +124,10 @@ export function readStroke(pts, w, h) {
 // ---------------------------------------------------------------- the pad
 
 const PAD = { top: 22, bottom: 22, left: 40, right: 14 };
-const SNAP_MS = 200;
-const ANSWER_MS = 550;
+const SNAP_MS = 180;
+const HOLD_MS = 220; // a right tone stays this long once it has snapped, then fades away
+const FADE_MS = 220;
+const ANSWER_MS = 500;
 const ease = t => 1 - (1 - t) ** 3;
 
 // Points along a SHAPES entry (or a model contour's pts), in pad heights, across the middle of the pad.
@@ -134,7 +136,7 @@ function shapePoints(pts, x0 = 0.18, x1 = 0.82) {
 }
 
 // `root` gets the canvas. onStroke(result) is called with readStroke's result after each stroke.
-// Returns { snap(result), answer(pts, tone), reject(), clear(), busy } — while busy, strokes are ignored.
+// Returns { snap(result, { fade }), answer(pts, tone), reject(), clear(), busy } — while busy, strokes are ignored.
 export function createTonePad(root, { onStroke }) {
   const canvas = document.createElement('canvas');
   canvas.className = 'pad-canvas';
@@ -209,7 +211,7 @@ export function createTonePad(root, { onStroke }) {
     if (live) line(live, col('--ink'), 6);
   }
 
-  function animate(ms, step, done) {
+  function animate(ms, step, done, easing = ease) {
     stop();
     const start = performance.now();
     let over = false;
@@ -217,14 +219,14 @@ export function createTonePad(root, { onStroke }) {
       if (over) return;
       over = true;
       stop();
-      step(ease(1));
+      step(easing(1));
       render();
       done?.();
     };
     const frame = now => {
       const t = (now - start) / ms;
       if (t >= 1) return end();
-      step(ease(t));
+      step(easing(t));
       render();
       raf = requestAnimationFrame(frame);
     };
@@ -251,10 +253,13 @@ export function createTonePad(root, { onStroke }) {
     scene.live = pts.map(toUnit);
     render();
   };
+  const listen = on => {
+    for (const t of ['pointermove', 'pointerup', 'pointercancel']) window[on ? 'addEventListener' : 'removeEventListener'](t, t === 'pointermove' ? move : end);
+  };
   const end = e => {
     if (e.pointerId !== id) return;
     id = null;
-    for (const t of ['pointermove', 'pointerup', 'pointercancel']) window.removeEventListener(t, t === 'pointermove' ? move : end);
+    listen(false);
     const stroke = pts;
     pts = null;
     if (!canvas.isConnected) return; // the question was closed mid-stroke
@@ -263,31 +268,39 @@ export function createTonePad(root, { onStroke }) {
     onStroke(readStroke(stroke, w, h));
   };
   canvas.addEventListener('pointerdown', e => {
-    if (api.busy || id !== null) return;
+    if (api.busy || e.pointerId === id) return;
     e.preventDefault();
+    // A new touch while a stroke is open starts over, so a lift that never arrived can't leave
+    // the pad ignoring you.
+    if (id !== null) listen(false);
     id = e.pointerId;
     pts = [local(e)];
-    stop(); // a rejected stroke may still be fading
+    stop(); // cuts short whatever is still animating
     try { canvas.setPointerCapture(id); } catch { /* the window listeners below cover it */ }
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', end);
-    window.addEventListener('pointercancel', end);
+    listen(true);
     scene.mine = scene.answer = null;
     scene.live = [toUnit(pts[0])];
     render();
   });
 
-  // Morphs the stroke just drawn into its tone's shape.
-  api.snap = result => new Promise(res => {
+  // Morphs the stroke just drawn into its tone's shape, resolving once it has. With fade, the
+  // shape then fades away, leaving the pad clean for the next tone.
+  api.snap = (result, { fade = false } = {}) => new Promise(res => {
     const from = scene.live && scene.live.length > 1 && result.tone !== 5 ? even(scene.live) : null;
     const to = shapePoints(SHAPES[result.shape]);
     scene.live = null;
-    if (!from) { scene.mine = { pts: to, tone: result.tone }; render(); return res(); }
+    const snapped = () => {
+      res();
+      if (!fade) return;
+      animate(HOLD_MS + FADE_MS, t => (scene.mine.fade = Math.max(0, t * (HOLD_MS + FADE_MS) - HOLD_MS) / FADE_MS),
+        () => { scene.mine = null; render(); }, t => t);
+    };
+    if (!from) { scene.mine = { pts: to, tone: result.tone }; render(); return snapped(); }
     const target = even(to);
     scene.mine = { pts: from, tone: result.tone };
     animate(SNAP_MS, t => {
       scene.mine.pts = from.map((p, i) => ({ x: p.x + t * (target[i].x - p.x), h: p.h + t * (target[i].h - p.h) }));
-    }, res);
+    }, snapped);
   });
 
   // Draws the right tone (a model contour's pts) over the faded answer you gave.

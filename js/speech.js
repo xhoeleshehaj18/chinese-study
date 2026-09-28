@@ -65,8 +65,10 @@ export function setRate(r) { rate = r; }
 // Stops whatever is being said.
 export function stopSpeaking() {
   player.pause();
+  // Only when the browser's voice is in use: cancel() can hold up the page for a moment on iOS,
+  // and this runs on every tap that moves on.
+  if (utterance) speechSynthesis.cancel();
   utterance = null;
-  if ('speechSynthesis' in window) speechSynthesis.cancel();
   finish?.();
   finish = null;
 }

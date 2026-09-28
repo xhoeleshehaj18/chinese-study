@@ -501,10 +501,17 @@ function answerFns(run, stage, onChange) {
   return { answer, undo };
 }
 
-function nextButton(next, label = 'Next →') {
+// With `auto` (ms) it also goes on by itself after that long, a bar along it filling up
+// meanwhile: for a right answer, where there's nothing more to look at. A tap goes sooner.
+function nextButton(next, label = 'Next →', auto = 0) {
   const b = h(`<button class="btn primary big">${label}</button>`);
   let gone = false;
   const go = () => { if (!gone) { gone = true; next(); } };
+  if (auto) {
+    b.classList.add('auto');
+    b.style.setProperty('--auto', `${auto}ms`);
+    setTimeout(() => b.isConnected && go(), auto); // not if you've left the screen meanwhile
+  }
   // With a finger, go as it lifts rather than on the click: right after drawing on the pad,
   // iOS sometimes drops the click, so it took two taps. Going after the touchend, which then
   // cancels the click, keeps that click from landing on whatever the next screen has there.
@@ -600,12 +607,14 @@ function drawTones(box, { zh, syl, blanks = syl.map((_, i) => i), question, belo
       const i = blanks[step];
       const s = syl[i];
       picked[i] = result.tone;
-      const snapped = pad.snap(result);
       if (picked[i] === s.tone) {
-        // Straight on to the next tone: the snapped shape stays until you start drawing it.
+        // Straight on to the next tone. The shape snaps, then fades so the pad is clean for it,
+        // and drawing it straight away cuts that short.
+        pad.snap(result, { fade: true });
         say(`${s.said} ✓`, `t${s.tone}`);
         return advance();
       }
+      const snapped = pad.snap(result);
       const last = step === blanks.length - 1;
       pad.busy = last;
       pending = !last;
@@ -640,7 +649,7 @@ const DRILLS = {
         const n = picked[0];
         feedback.innerHTML = `<span class="py-big t${t}">${set.py[t - 1]}</span> <span class="zh">${set.zh[t - 1]}</span>`;
         answer(n === t, t);
-        if (n === t) return setTimeout(next, 900);
+        if (n === t) return after.replaceChildren(nextButton(next, 'Next →', 900));
         const cmp = h('<button class="btn small">🔊 Compare</button>');
         cmp.onclick = async () => { await speak(set.zh[n - 1]); speak(set.zh[t - 1]); };
         feedback.append(h(`<div class="muted small">You drew ${n} (${set.py[n - 1]}). Compare plays yours, then the right one.</div>`), h('<div class="row"></div>'));
@@ -662,8 +671,7 @@ const DRILLS = {
         feedback.innerHTML = `<div class="center"><span class="zh">${esc(word.zh)}</span> · ${esc(word.en)}</div>`;
         const ok = syl.every((s, i) => picked[i] === s.tone);
         answer(ok, word.zh);
-        if (ok) return setTimeout(next, 1300);
-        after.replaceChildren(nextButton(next));
+        after.replaceChildren(nextButton(next, 'Next →', ok ? 1100 : 0));
       },
     });
   },
@@ -681,8 +689,7 @@ const DRILLS = {
           ${word.said !== word.py ? `<div class="muted small center">Written <b>${colorPinyin(word.py)}</b>, said <b>${colorPinyin(word.said)}</b>.</div>` : ''}`;
         const ok = syl.every((s, i) => picked[i] === s.tone);
         answer(ok, word.zh);
-        if (ok) return setTimeout(next, 1500);
-        after.replaceChildren(nextButton(next));
+        after.replaceChildren(nextButton(next, 'Next →', ok ? 1300 : 0));
       },
     });
   },
@@ -713,8 +720,7 @@ const DRILLS = {
         feedback.innerHTML = `<div class="center"><span class="zh">${esc(phrase.zh)}</span> · ${esc(phrase.en)}</div>
           ${changed.length ? `<div class="muted small center">${changed.map(s => `${esc(s.text)} → ${colorPinyin(s.said)}`).join(', ')}: a 3rd tone before another 3rd tone is said as a 2nd tone.</div>` : ''}`;
         answer(parts);
-        if (parts.every(p => p.correct)) return setTimeout(next, 1500);
-        after.replaceChildren(nextButton(next));
+        after.replaceChildren(nextButton(next, 'Next →', parts.every(p => p.correct) ? 1400 : 0));
       },
     });
   },
@@ -737,7 +743,7 @@ const DRILLS = {
       const fb = $('.feedback', box);
       fb.innerHTML = `<span class="py-big">${target[1]}</span> <span class="zh">${target[0]}</span>`;
       answer(chosen === target, set.id);
-      if (chosen === target) return setTimeout(next, 900);
+      if (chosen === target) return box.append(nextButton(next, 'Next →', 900));
       b.classList.add('wrong');
       const cmp = h('<button class="btn small">🔊 Compare</button>');
       cmp.onclick = async () => { await speak(chosen[0]); speak(target[0]); };
@@ -897,8 +903,7 @@ const DRILLS = {
         ${ok ? '' : `<div>It was <b class="num-answer">${esc(show(x.answer))}${isPrice ? ' 块' : ''}</b></div>`}
         <div class="py-big">${colorPinyin(x.py)}</div><div class="zh">${esc(x.zh)}</div>`;
       answer(ok, key(x));
-      if (ok) return setTimeout(next, 1600);
-      box.append(nextButton(next));
+      box.append(nextButton(next, 'Next →', ok ? 1400 : 0));
     };
     $('.replay', box).onclick = () => speak(x.zh);
     $('.slow', box).onclick = () => speak(x.zh, { slow: true });
