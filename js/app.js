@@ -524,6 +524,9 @@ function drawTones(box, { zh, syl, blanks = syl.map((_, i) => i), question, belo
   const picked = {};
   let step = 0; // which of the blanks you're drawing
   let done = false;
+  // After a wrong tone the right one stays on the pad until you move on, with Continue or by
+  // just drawing the next tone (shown as the active one meanwhile).
+  let pending = false;
 
   const chip = (s, i) => {
     const cls = `syl${s.pauseBefore && i ? ' pause' : ''}`;
@@ -533,7 +536,7 @@ function drawTones(box, { zh, syl, blanks = syl.map((_, i) => i), question, belo
       const mine = withTone(toneless(s.text), picked[i]);
       return `<span class="${cls} blank ${ok ? 'right' : 'wrong'}"><span class="t${s.tone}">${esc(s.said)}</span>${ok ? '' : `<s class="t${picked[i]}">${esc(mine)}</s>`}</span>`;
     }
-    return `<span class="${cls} blank${i === blanks[step] ? ' active' : ''}"><span class="gap">${esc(toneless(s.text))}</span></span>`;
+    return `<span class="${cls} blank${i === blanks[pending ? step + 1 : step] ? ' active' : ''}"><span class="gap">${esc(toneless(s.text))}</span></span>`;
   };
   const HINT = light ? 'Draw it roughly · tap for a light tone' : 'Draw it roughly';
   box.innerHTML = `
@@ -557,20 +560,22 @@ function drawTones(box, { zh, syl, blanks = syl.map((_, i) => i), question, belo
   };
   const end = () => {
     done = true;
+    pad.busy = true;
     draw();
     finish(picked, { feedback: $('.feedback', box), after });
   };
   const advance = () => {
+    pending = false;
+    after.replaceChildren();
     step++;
     if (step >= blanks.length) return end();
     pad.busy = false;
-    pad.clear();
-    say(HINT);
     draw();
   };
 
   const pad = createTonePad($('.tone-pad', box), {
     onStroke: async result => {
+      if (pending) { advance(); say(HINT); }
       if (result.retry || (!light && result.tone === 5)) {
         pad.reject();
         say(result.tone === 5 ? 'No light tones here. Draw the tone\'s shape.'
@@ -578,21 +583,28 @@ function drawTones(box, { zh, syl, blanks = syl.map((_, i) => i), question, belo
         hintTimer = setTimeout(() => say(HINT), 2500);
         return;
       }
-      pad.busy = true;
       const i = blanks[step];
       const s = syl[i];
       picked[i] = result.tone;
-      await pad.snap(result);
-      draw();
+      const snapped = pad.snap(result);
       if (picked[i] === s.tone) {
+        // Straight on to the next tone: the snapped shape stays until you start drawing it.
         say(`${s.said} ✓`, `t${s.tone}`);
-        return setTimeout(advance, 450);
+        return advance();
       }
+      const last = step === blanks.length - 1;
+      pad.busy = last;
+      pending = !last;
+      draw();
       say(`It's ${s.said}: ${TONE_SAID[s.tone === 3 && s.pts.length > 2 ? '3dip' : s.tone]}`, `t${s.tone}`);
-      pad.answer(s.pts, s.tone);
       speak(zh);
-      if (step === blanks.length - 1) return end();
-      after.replaceChildren(nextButton(() => { after.replaceChildren(); advance(); }, 'Continue →'));
+      if (!last) {
+        after.replaceChildren(nextButton(() => { advance(); pad.clear(); say(HINT); }, 'Continue →'));
+      }
+      // Starting the next tone cuts these short (the snap then never resolves), which is fine.
+      await snapped;
+      pad.answer(s.pts, s.tone);
+      if (last) end();
     },
   });
   $('.replay', box).onclick = () => speak(zh);
