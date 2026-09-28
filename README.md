@@ -24,6 +24,8 @@ Inside a phrase unit:
 - New phrases come in pairs: meet them, then get quizzed straight away. Missed cards come back when they're actually due, with a countdown if you're waiting.
 - **Shadowing** of example sentences opens on the Path tab once you know a few phrases.
 - Pinyin comes first, with tone colours (1 red · 2 orange · 3 green · 4 blue). Simplified characters are shown alongside and can be hidden.
+- Pinyin shows the written tones, so where a tone is said differently (3–3 → 2–3), a line under it says so: *Tone change: nǐ → ní*. In a run of three or more 3rd tones, the changes that depend on phrasing are marked "(often)".
+- Many phrases also show a word-by-word meaning (你叫什么名字 is literally "you are called what name?"), and short notes cover the grammar and usage beginners trip over: no word for "yes", 很 isn't always "very", 是 doesn't go with adjectives, measure words, and word pairs that differ only in tone (买 mǎi / 卖 mài, 哪里 / 那里).
 
 **Drawing tones.** All four hearing stages have you draw the tones you hear rather than pick numbers: stage 1 one tone, stage 2 both tones of a word, stage 3 the tones as actually said (tap for a neutral tone), and stage 4 the missing tones of a phrase. In stages 1 and 2 there are no light tones, so a tap asks for the tone's shape and isn't counted. A wrong single tone also offers 🔊 Compare, which plays the syllable you drew and then the right one. In stages 2 and 3 a word counts as right when all its tones are.
 

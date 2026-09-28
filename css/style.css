@@ -134,6 +134,11 @@ h1 .muted, h2 .muted { font-size: 0.85rem; font-weight: 400; margin-left: 6px; }
 .phrase.big .py { font-size: 2rem; }
 .phrase.big .zh { font-size: 2.2rem; }
 .phrase.big .en { font-size: 1.1rem; }
+/* where spoken tones differ from the written ones, and the word-by-word meaning */
+.said { font-size: 0.85rem; font-weight: 500; color: var(--muted); margin-top: 2px; }
+.phrase.big .said { font-size: 0.95rem; }
+.said i { font-weight: 400; }
+.phrase .lit { font-size: 0.85rem; font-style: italic; color: var(--muted); margin-top: 2px; }
 .phrase .prompt-en { color: var(--ink); font-size: 1.6rem; font-weight: 600; margin: 24px 0; }
 .audio-row { display: flex; gap: 12px; justify-content: center; align-items: center; margin: 12px 0; }
 .note { background: var(--card); border: 1px dashed var(--line); border-radius: 12px; padding: 10px 12px; font-size: 0.9rem; text-align: left; margin: 12px 0; }
@@ -285,7 +290,6 @@ details.unit-list summary { padding: 6px 0; cursor: pointer; }
 
 /* Mic buttons, pitch comparison, backup nudge */
 .compare { margin-top: 4px; }
-.compare .changes, .compare .muted { margin-top: 4px; }
 .link-btn { display: block; margin: 16px auto 0; background: none; border: 0; padding: 8px; text-decoration: underline; cursor: pointer; font: inherit; text-align: center; }
 
 /* Update pill: slides down from the top */
