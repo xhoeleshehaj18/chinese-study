@@ -2,6 +2,11 @@
 
 Research notes and a prioritised roadmap (September 2026). Each suggestion says what to change, why (with the evidence), and where in the code it would go.
 
+**Done so far:**
+- #1, several voices: six for the sound drills, two for phrases and numbers, and 44 tone syllables for stage 1. The extra clips are made by `tools/make_audio.py`.
+- #5, shadowing in the daily session.
+- Part of #9: 14 new units (u13–u26), taking the course from 129 to 283 phrases.
+
 ## Where the app stands
 
 **What it already does well, and the research agrees with:**
