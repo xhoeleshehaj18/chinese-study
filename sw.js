@@ -1,7 +1,7 @@
 // Network-first service worker: always fetch the latest version when online,
 // fall back to the cached copy when offline.
 // Bump this when CORE changes (and keep FILES in js/update.js in step).
-const CACHE = 'shuo-zhongwen-v11';
+const CACHE = 'shuo-zhongwen-v12';
 // Voice clips are named by a hash of their text, so a cached clip never goes stale. They live in
 // their own cache that survives app updates; clips no longer in the manifest are pruned.
 const AUDIO = 'shuo-zhongwen-audio';

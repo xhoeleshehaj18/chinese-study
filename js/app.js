@@ -503,7 +503,21 @@ function answerFns(run, stage, onChange) {
 
 function nextButton(next, label = 'Next →') {
   const b = h(`<button class="btn primary big">${label}</button>`);
-  b.onclick = next;
+  let gone = false;
+  const go = () => { if (!gone) { gone = true; next(); } };
+  // With a finger, go as it lifts rather than on the click: right after drawing on the pad,
+  // iOS sometimes drops the click, so it took two taps. Going after the touchend, which then
+  // cancels the click, keeps that click from landing on whatever the next screen has there.
+  let tapped = false;
+  b.addEventListener('pointerup', e => {
+    if (e.pointerType !== 'touch') return;
+    const r = b.getBoundingClientRect();
+    if (e.clientX < r.left - 8 || e.clientX > r.right + 8 || e.clientY < r.top - 8 || e.clientY > r.bottom + 8) return;
+    tapped = true;
+    setTimeout(go);
+  });
+  b.addEventListener('touchend', e => { if (tapped) e.preventDefault(); });
+  b.onclick = go;
   return b;
 }
 
@@ -598,13 +612,12 @@ function drawTones(box, { zh, syl, blanks = syl.map((_, i) => i), question, belo
       draw();
       say(`It's ${s.said}: ${TONE_SAID[s.tone === 3 && s.pts.length > 2 ? '3dip' : s.tone]}`, `t${s.tone}`);
       speak(zh);
-      if (!last) {
-        after.replaceChildren(nextButton(() => { advance(); pad.clear(); say(HINT); }, 'Continue →'));
-      }
+      // The button comes straight away, so it's there to tap while the shape is still snapping.
+      if (last) end();
+      else after.replaceChildren(nextButton(() => { advance(); pad.clear(); say(HINT); }, 'Continue →'));
       // Starting the next tone cuts these short (the snap then never resolves), which is fine.
       await snapped;
       pad.answer(s.pts, s.tone);
-      if (last) end();
     },
   });
   $('.replay', box).onclick = () => speak(zh);
