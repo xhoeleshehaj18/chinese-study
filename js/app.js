@@ -250,8 +250,8 @@ function renderToday() {
   const streak = currentStreak();
   const el = h(`<section class="today">
     <header class="hero">
-      <div class="streak">${streak ? `🔥 ${streak} day${streak > 1 ? 's' : ''}` : '🌱 Start your streak'}</div>
       <h1>今天 <span class="muted">jīntiān · today</span></h1>
+      <div class="streak">${streak ? `🔥 ${streak} day${streak > 1 ? 's' : ''}` : '🌱 Start your streak'}</div>
     </header>
     ${hasChineseVoice() ? '' : `<div class="warn ${voicesSettled ? '' : 'hidden'}">No Chinese voice found on this device, so audio may not play. On iPhone: Settings → Accessibility → Spoken Content → Voices → Chinese. On Android: install Google Text-to-speech with Chinese.</div>`}
     <div class="stage-box"></div>
@@ -291,13 +291,16 @@ function renderUnitStage(box, stage) {
   const due = dueCards(units, soon()).length;
   const us = unitStatus(stage);
   const newLeft = Math.min(newRemainingToday(), us.total - us.introduced);
+  const done = [us.introduced === us.total, us.graduated && us.introduced === us.total, false];
+  const now = done.indexOf(false);
+  const step = (i, html) => `<li class="${done[i] ? 'done' : i === now ? 'now' : ''}">${html}</li>`;
   const card = h(`<div class="card stage">
       ${stageHeader(stage)}
-      <div class="unit-steps">
-        <div class="${us.introduced === us.total ? 'done' : ''}">1. Learn the ${us.total} phrases <span class="muted">(${us.introduced}/${us.total})</span></div>
-        <div class="${us.graduated && us.introduced === us.total ? 'done' : ''}">2. Review them until they stick</div>
-        <div>3. Pass the unit test on a later day <span class="muted">(needs ${us.need}/${us.questions})</span></div>
-      </div>
+      <ol class="unit-steps">
+        ${step(0, `<span>Learn the ${us.total} phrases <span class="muted">(${us.introduced}/${us.total})</span></span>`)}
+        ${step(1, 'Review them until they stick')}
+        ${step(2, `<span>Pass the unit test on a later day <span class="muted">(needs ${us.need}/${us.questions})</span></span>`)}
+      </ol>
     </div>`);
   box.append(card);
 
@@ -906,7 +909,7 @@ const DRILLS = {
     }));
     check.onclick = () => {
       const ok = typed === x.answer;
-      keys.forEach(k => (k.disabled = true));
+      $('.keypad', box).remove();
       check.remove();
       out.parentElement.classList.add(ok ? 'right' : 'wrong');
       $('.feedback', box).innerHTML = `
@@ -965,10 +968,12 @@ function drawPitch(canvas, tone, contour) {
 function renderDrillDone(run) {
   releaseMic();
   const [part, whole] = run.stage.id === 'saypairs' ? ['syllables', 'words'] : ['tones', 'phrases'];
+  const good = (run.parts ? run.partsRight / run.parts : run.right / run.size) >= 0.9;
   const el = h(`<section class="study done">
+      <div class="big-emoji">${good ? '🌟' : '💪'}</div>
       <h2>${run.parts ? `${run.partsRight}/${run.parts} ${part}` : `${run.right}/${run.size}`} this round</h2>
       ${run.parts ? `<p class="muted">${run.right} of ${run.size} ${whole} fully right</p>` : ''}
-      ${gateBox(run.stage)}
+      <div class="card">${gateBox(run.stage)}</div>
       <p class="muted">${run.stage === currentStage() ? 'Keep going until you hit the pass mark. Short daily rounds beat one long cram.' : 'Practice round on a stage you\'ve already passed.'}</p>
     </section>`);
   const again = nextButton(() => startDrill(run.stage), 'Another round');
@@ -1032,7 +1037,7 @@ function warmupNext(run) {
   // Warm-up questions stay quick: short phrases, and numbers from any level.
   const level = stage.id === 'phrases' ? 2 : stage.id === 'numbers' ? 1 + Math.floor(Math.random() * NUMBER_LEVELS.length) : undefined;
   const box = h('<section class="study drill"></section>');
-  const label = h(`<div class="kind">☀️ Warm-up · ${esc(stage.title)}</div>`);
+  const label = h(`<div class="center"><span class="kind">☀️ Warm-up · ${esc(stage.title)}</span></div>`);
   const skip = h('<button class="link-btn muted small">Skip the warm-up</button>');
   skip.onclick = () => endWarmup(run);
   view.append(label, box, skip);
@@ -1182,13 +1187,14 @@ function renderCard(cardId) {
 
   $('.reveal', el).onclick = () => {
     answer.innerHTML = `${phraseBlock(item)}${item.note ? `<div class="note">💡 ${esc(item.note)}</div>` : ''}${exampleBlock(item)}`;
-    if (kind === 'speak') $('.phrase', answer).after(audioButtons(item.zh));
     wireExample(answer, item);
     answer.classList.remove('hidden');
     $('.reveal', el).remove();
     if (kind === 'speak') {
+      // The answer goes on top, with your recording (if you made one) under it to compare.
       prompt.querySelector('.phrase')?.remove();
       prompt.querySelector('.hint')?.remove();
+      $('.phrase', answer).after(audioButtons(item.zh), prompt);
       prompt.querySelector('.speak-check')?.reveal?.();
       speak(item.zh);
       // Needing a hint means it wasn't a clean recall.
@@ -1276,14 +1282,14 @@ function testNext(run) {
     }));
   } else {
     let score = null;
-    q.append(h(`<div class="phrase big"><div class="en prompt-en">${esc(item.en)}</div></div>`));
+    const ask = h(`<div class="phrase big"><div class="en prompt-en">${esc(item.en)}</div></div>`);
     const check = speakCheck(item.zh, { py: item.py, hidden: true, onResult: s => (score = s) });
-    q.append(check);
+    q.append(ask, check);
     const reveal = h('<button class="btn primary big">Show answer</button>');
     reveal.onclick = () => {
       reveal.remove();
       check.reveal?.();
-      q.append(h(phraseBlock(item)), audioButtons(item.zh));
+      ask.replaceWith(h(phraseBlock(item)), audioButtons(item.zh));
       speak(item.zh);
       const judge = h(`<div>
           <div class="muted small center">Did you say it correctly, tones included?</div>
@@ -1308,7 +1314,7 @@ function renderTestResult(run) {
       <div class="big-emoji">${passed ? '🎉' : '💪'}</div>
       <h2>${run.right}/${run.qs.length} correct</h2>
       <p>${passed ? `Unit passed: <b>${run.stage.emoji} ${esc(run.stage.title)}</b>.` : `Pass mark is ${us.need}/${run.qs.length}. The ${run.missed.length} you missed are back in review, and you can retake the test tomorrow.`}</p>
-      ${!passed ? `<div class="missed">${run.missed.map(id => {
+      ${!passed ? `<div class="missed card">${run.missed.map(id => {
         const [itemId, kind] = id.split(':'); const i = ITEM_BY_ID[itemId];
         return `<div class="row-item"><span>${kind === 'listen' ? '👂' : '🗣'}</span><div class="grow"><div class="py">${colorPinyin(i.py)}</div><div class="en muted small">${esc(i.en)}</div></div></div>`;
       }).join('')}</div>` : ''}
@@ -1334,9 +1340,12 @@ function renderPath() {
   const row = s => {
     const status = isPassed(s) ? 'passed' : s === cur ? 'current' : 'locked';
     const icon = status === 'passed' ? '✓' : status === 'current' ? '▶' : '🔒';
+    const tappable = status === 'current' || (status === 'passed' && s.kind === 'drill');
     return `<div class="path-row ${status}" data-id="${s.id}">
         <span class="path-icon">${icon}</span>
-        <span class="grow"><b>${s.emoji} ${esc(s.title)}</b>${status === 'passed' && s.kind === 'drill' ? '<span class="muted small"> · tap to practise</span>' : ''}</span>
+        <span class="path-emoji">${s.emoji}</span>
+        <span class="grow"><b>${esc(s.title)}</b></span>
+        ${tappable ? '<span class="path-go" aria-hidden="true">›</span>' : ''}
       </div>
       ${s.kind === 'unit' && status !== 'locked' ? `<details class="unit-list"><summary class="muted small">Phrases (${s.unit.items.filter(i => learned.has(i.id)).length}/${s.unit.items.length} learned)</summary>
         ${s.unit.items.filter(i => learned.has(i.id)).map(i => `<div class="row-item" data-item="${i.id}">
@@ -1416,40 +1425,44 @@ function renderMe() {
       </div>
 
       <h2>Settings</h2>
-      <label class="setting">New phrases per day
-        <select class="npd">${[3, 5, 8, 10, 15].map(n => `<option ${n === st.newPerDay ? 'selected' : ''}>${n}</option>`).join('')}</select>
-      </label>
-      <label class="setting">Speech speed <span class="rate-val">${st.rate.toFixed(2)}×</span>
-        <input type="range" class="rate" min="0.5" max="1.2" step="0.05" value="${st.rate}">
-      </label>
-      <label class="setting">Show characters (汉字)
-        <input type="checkbox" class="hz" ${st.showHanzi ? 'checked' : ''}>
-      </label>
-      <div class="setting col"><span>Device check</span>
-        <span class="muted small">Chinese voice: ${hasChineseVoice() ? '✓' : '✗ not found'} · Speech recognition: ${canRecognize ? '✓' : '✗ (you\'ll record and compare instead)'} · Recording: ${canRecord ? '✓' : '✗'}</span>
+      <div class="group">
+        <label class="setting">New phrases per day
+          <select class="npd">${[3, 5, 8, 10, 15].map(n => `<option ${n === st.newPerDay ? 'selected' : ''}>${n}</option>`).join('')}</select>
+        </label>
+        <label class="setting">Speech speed <span class="rate-val">${st.rate.toFixed(2)}×</span>
+          <input type="range" class="rate" min="0.5" max="1.2" step="0.05" value="${st.rate}">
+        </label>
+        <label class="setting">Show characters (汉字)
+          <input type="checkbox" class="hz" ${st.showHanzi ? 'checked' : ''}>
+        </label>
+        <div class="setting col"><span>Device check</span>
+          <span class="muted small">Chinese voice: ${hasChineseVoice() ? '✓' : '✗ not found'} · Speech recognition: ${canRecognize ? '✓' : '✗ (you\'ll record and compare instead)'} · Recording: ${canRecord ? '✓' : '✗'}</span>
+        </div>
+        ${cur ? `<div class="setting col"><span>Skip the current stage</span>
+          <span class="muted small">Only if you already know "${esc(cur.title)}" well, or your device can't run it (for example, no microphone).</span>
+          <button class="btn small skip">Skip "${esc(cur.title)}"</button>
+        </div>` : ''}
       </div>
-      ${cur ? `<div class="setting col"><span>Skip the current stage</span>
-        <span class="muted small">Only if you already know "${esc(cur.title)}" well, or your device can't run it (for example, no microphone).</span>
-        <button class="btn small skip">Skip "${esc(cur.title)}"</button>
-      </div>` : ''}
 
       <h2>App updates</h2>
-      <div class="setting col"><span class="update-status">${updateText()}</span>
+      <div class="group"><div class="setting col"><span class="update-status">${updateText()}</span>
         <span class="muted small">The app checks each time you open it. Force update re-downloads everything, in case something looks out of date.</span>
         <div class="row left">
           <button class="btn small check-update">Check now</button>
           <button class="btn small force-update">Force update</button>
         </div>
-      </div>
+      </div></div>
 
       <h2>Backup</h2>
-      <p class="muted small">Progress is saved on this device only. Export a backup now and then, and to move to another phone or browser.
-        <b>${backupText()}</b></p>
-      <div class="row">
-        <button class="btn export">⬇ Export</button>
-        <label class="btn import">⬆ Import<input type="file" accept="application/json,.json" hidden></label>
-        <button class="btn danger reset">Reset</button>
-      </div>
+      <div class="group"><div class="setting col">
+        <span><b>${backupText()}</b></span>
+        <span class="muted small">Progress is saved on this device only. Export a backup now and then, and to move to another phone or browser.</span>
+        <div class="row left">
+          <button class="btn small export">⬇ Export</button>
+          <label class="btn small import">⬆ Import<input type="file" accept="application/json,.json" hidden></label>
+          <button class="btn small danger reset">Reset</button>
+        </div>
+      </div></div>
     </section>`);
   $('.npd', el).onchange = e => { st.newPerDay = +e.target.value; save(); };
   $('.rate', el).oninput = e => {
