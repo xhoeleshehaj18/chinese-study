@@ -329,6 +329,52 @@ export async function trackPitch(ms, onFrame, { silenceMs = 0, signal } = {}) {
   return { values, url };
 }
 
+// ---------- Pitch of the voice clips ----------
+// The pitch pictures show the native voice's real melody, measured from its clip with the same
+// pitch tracker as your voice, so the two lines can be compared like for like.
+
+const clipFrames = new Map(); // file in audio/ → Promise<{ hz, rms } | null>
+
+// Resolves with the clip's pitch per frame (Hz, null where unvoiced) and loudness per frame, at the
+// same ~60 frames a second as trackPitch, or with null when the text has no clip (or it won't load).
+// It's the clip speak() would play first: this round's voice, else the default one.
+export function clipPitch(text) {
+  const byVoice = clips[speechText(text)] || {};
+  const file = byVoice[roundVoice] || byVoice[DEFAULT_VOICE] || Object.values(byVoice)[0];
+  if (!file) return Promise.resolve(null); // not cached: the manifest may still be loading
+  if (!clipFrames.has(file)) {
+    clipFrames.set(file, fetch(`audio/${file}`)
+      .then(res => { if (!res.ok) throw new Error(res.status); return res.arrayBuffer(); })
+      .then(decode)
+      .then(audio => pitchFrames(audio.getChannelData(0), audio.sampleRate))
+      .catch(() => { clipFrames.delete(file); return null; }));
+  }
+  return clipFrames.get(file);
+}
+
+// Decodes offline at the clips' own rate (24 kHz), so nothing is played and no gesture is needed.
+function decode(buf) {
+  const Ctx = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+  const ctx = new Ctx(1, 1, 24000);
+  return new Promise((res, rej) => ctx.decodeAudioData(buf, res, rej)); // callback form for older Safari
+}
+
+export function pitchFrames(data, rate) {
+  // Halving 24 kHz first makes the pitch search about 4× cheaper; the voice's pitch survives easily.
+  if (rate >= 20000) { data = decimate(data, 2); rate /= 2; }
+  const hop = Math.round(rate / 60);
+  const win = Math.round(rate * 2048 / 48000); // the same 43 ms window as the microphone analyser
+  const hz = [], rms = [];
+  for (let i = 0; i + win <= data.length; i += hop) {
+    const frame = data.subarray(i, i + win);
+    let e = 0;
+    for (let k = 0; k < frame.length; k++) e += frame[k] * frame[k];
+    rms.push(Math.sqrt(e / frame.length));
+    hz.push(detectPitch(frame, rate));
+  }
+  return { hz, rms };
+}
+
 // Keep the voiced part, drop isolated blips, convert to semitones around the median.
 export function cleanContour(values) {
   let first = values.findIndex(v => v);

@@ -17,7 +17,7 @@ import {
 } from './speech.js';
 import { classifyTone, checkPair } from './tone-grade.js';
 import { colorPinyin, syllables } from './pinyin.js';
-import { drawCompare, toneChanges, modelContour } from './pitch-view.js';
+import { drawCompare, toneChanges, modelContour, loadModel } from './pitch-view.js';
 import { update, startUpdateChecks, checkForUpdate, downloadUpdate } from './update.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -166,8 +166,9 @@ function speakCheck(target, { onResult, py, hidden = false } = {}) {
   if (usePitch) {
     const btn = $('.tones', el);
     const syl = syllables(py.split('/')[0]).length;
-    let canvas = null, stopper = null, contour = [], revealed = !hidden;
-    const draw = () => drawCompare(canvas, py, contour, { hideModel: !revealed });
+    let canvas = null, stopper = null, contour = [], revealed = !hidden, model = null;
+    const draw = () => drawCompare(canvas, py, contour, { hideModel: !revealed, model });
+    loadModel(target, py).then(m => { model = m; if (canvas && m) draw(); });
     const modelBtn = h('<button class="btn small">🔊 Model</button>');
     modelBtn.onclick = () => speak(target);
     el.reveal = () => {
@@ -875,9 +876,10 @@ const DRILLS = {
       <div class="verdict center"></div>
       <div class="row after hidden"><button class="btn small mine">▶ You</button><button class="btn small nocount">Don't count this one</button></div>`;
     const canvas = $('canvas', box);
-    let contour = [];
-    const draw = () => drawCompare(canvas, word.py, contour);
+    let contour = [], model = null;
+    const draw = () => drawCompare(canvas, word.py, contour, { model });
     draw();
+    loadModel(word.zh, word.py).then(m => { model = m; if (m) draw(); });
     $('.replay', box).onclick = () => speak(word.zh);
     $('.slow', box).onclick = () => speak(word.zh, { slow: true });
     const rec = $('.rec', box);

@@ -39,7 +39,7 @@ Inside a phrase unit:
 
 Drills lean towards what you get wrong: a tone, word or sound you miss comes up more often until you get it right again.
 
-**Checking your tones.** Speech recognition only checks the *words*. It usually accepts the right words said with the wrong tones, so a match is labelled "Understood" rather than "Perfect". The 📈 button records you and draws your pitch next to the expected melody (model on the left, you on the right). The model is drawn from the pinyin with tone changes applied, because the browser won't let the app measure its own text-to-speech audio. On Speak cards and in tests, the model stays hidden until you reveal the answer.
+**Checking your tones.** Speech recognition only checks the *words*. It usually accepts the right words said with the wrong tones, so a match is labelled "Understood" rather than "Perfect". The 📈 button records you and draws your pitch next to the expected melody (model on the left, you on the right). The model is the melody of the voice you just heard, measured from its clip with the same pitch tracker as your voice and coloured by each syllable's tone, so you compare against real speech (with its real tone changes and neutral tones) rather than an idealised drawing. For text without a clip, it's drawn from the pinyin with tone changes applied. "Say the four tones" keeps a drawn target shape, because the recorded single-syllable 3rd tones dip too little for its grader. On Speak cards and in tests, the model stays hidden until you reveal the answer.
 
 You can skip a stage on the **Me** tab if you already know it.
 
@@ -53,7 +53,7 @@ You can skip a stage on the **Me** tab if you already know it.
 - `js/store.js`: progress in `localStorage` and FSRS scheduling ([ts-fsrs](https://github.com/open-spaced-repetition/ts-fsrs), MIT, vendored in `vendor/`).
 - `js/speech.js`: text-to-speech, speech recognition, recording, pitch detection.
 - `js/tone-grade.js`: classifies a pitch contour as tone 1–4, and checks each syllable of a two-syllable word against its tone.
-- `js/pitch-view.js`: expected phrase melody (with tone changes) and the side-by-side pitch picture.
+- `js/pitch-view.js`: the side-by-side pitch picture: the native voice's melody from its clip, split into syllables, or the expected melody drawn from the pinyin (with tone changes).
 - `js/app.js`: UI.
 
 ## Run locally
